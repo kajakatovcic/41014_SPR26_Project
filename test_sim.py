@@ -1,3 +1,4 @@
+# Use this file to test your mujoco installation
 import mujoco
 import mujoco.viewer
 
