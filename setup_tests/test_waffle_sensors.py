@@ -1,11 +1,11 @@
-# Use this script to test the TurtleBot3 Burger model in MuJoCo with a 2D lidar and an RGB camera.
+# Use this script to test the TurtleBot3 Waffle Pi model in MuJoCo with a 2D lidar and an RGB camera.
 # The sensors are added to the stock robotis_mujoco_menagerie model at load time (the submodule is not modified):
 #   * 2D lidar - 360 rangefinders (1 deg resolution, 0.12-3.5 m) on the LDS, like the real LDS-01
-#   * RGB camera - forward-facing camera on the front of the robot, rendered offscreen
+#   * RGB camera - forward-facing Raspberry Pi camera in the model's camera housing, rendered offscreen
 # The robot wanders around a walled arena, using the lidar to avoid obstacles.
 # A MuJoCo viewer shows the scene (lidar rays drawn in yellow) and an OpenCV window shows the camera image + lidar scan.
 # Requirements: Python 3.8+, mujoco>=3.2.0, numpy, opencv-python, and the robotis_mujoco_menagerie submodule.
-# Usage: python setup_tests/test_burger_sensors.py [--duration 60] [--headless]
+# Usage: python setup_tests/test_waffle_sensors.py [--duration 60] [--headless]
 import argparse
 import time
 from pathlib import Path
@@ -15,10 +15,10 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
-XML = Path(__file__).resolve().parents[1] / "robotis_mujoco_menagerie" / "robotis_tb3" / "scene_turtlebot3_burger.xml"
+XML = Path(__file__).resolve().parents[1] / "robotis_mujoco_menagerie" / "robotis_tb3" / "scene_turtlebot3_waffle_pi.xml"
 
 # Lidar (LDS-01 spec)
-LIDAR_POS = (-0.032, 0.0, 0.182)  # scan origin in the base frame (base_scan in the ROS URDF)
+LIDAR_POS = (-0.049, 0.0, 0.1255)  # scan origin in the base frame, at the model's LDS mesh
 LIDAR_NUM_RAYS = 360
 LIDAR_RANGE_MIN = 0.12
 LIDAR_RANGE_MAX = 3.5
@@ -26,7 +26,7 @@ LIDAR_ANGLES = np.deg2rad(np.arange(LIDAR_NUM_RAYS) * 360.0 / LIDAR_NUM_RAYS)  #
 
 # RGB camera
 CAMERA_NAME = "camera_rgb"
-CAMERA_POS = (0.05, 0.0, 0.12)
+CAMERA_POS = (0.0855, 0.0, 0.107)  # front face of the model's camera housing
 CAMERA_WIDTH, CAMERA_HEIGHT = 640, 480
 CAMERA_FOVY = 48.8  # Raspberry Pi camera v2 vertical FOV (deg)
 
@@ -69,12 +69,8 @@ def add_sensors(spec):
             intprm=[1, 0, 0],  # output distance only (what <rangefinder> in XML defaults to)
         )
 
-    # RGB camera with a small visual-only housing
+    # RGB camera, looking out of the Waffle Pi's camera housing
     base.add_camera(name=CAMERA_NAME, pos=CAMERA_POS, quat=camera_quat(), fovy=CAMERA_FOVY)
-    base.add_geom(
-        type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.008, 0.015, 0.01], pos=CAMERA_POS,
-        rgba=[0.1, 0.5, 0.1, 1], contype=0, conaffinity=0, density=0, group=2,
-    )
 
 
 def add_arena(spec):
@@ -95,21 +91,21 @@ def add_arena(spec):
     world.add_geom(name="cyl_green", type=mujoco.mjtGeom.mjGEOM_CYLINDER,
                    pos=[0.6, -0.9, 0.2], size=[0.12, 0.2], rgba=[0.1, 0.7, 0.2, 1])
     world.add_geom(name="box_blue", type=mujoco.mjtGeom.mjGEOM_BOX,
-                   pos=[-0.9, 0.8, 0.2], size=[0.25, 0.1, 0.2], rgba=[0.1, 0.3, 0.85, 1])
+                   pos=[-1.0, 0.9, 0.2], size=[0.25, 0.1, 0.2], rgba=[0.1, 0.3, 0.85, 1])
     world.add_geom(name="cyl_yellow", type=mujoco.mjtGeom.mjGEOM_CYLINDER,
                    pos=[-1.0, -0.8, 0.2], size=[0.08, 0.2], rgba=[0.9, 0.8, 0.1, 1])
 
 
 def fix_caster(spec):
-    """The burger_base mesh includes the ball caster, so its convex hull touches the floor at the same point as the
-    model's low-friction caster sphere, but with friction 1. MuJoCo also takes the larger friction of the two geoms
-    in contact, so even the caster sphere gets the floor's friction. Together these drag the rear of the robot: it
-    covers ~75% of the distance the wheels roll and barely turns. Give the chassis collision mesh the caster's
-    contact properties, and a higher priority so they are used instead of the floor's."""
-    caster = next(g for g in spec.geoms if g.type == mujoco.mjtGeom.mjGEOM_SPHERE and g.parent.name == "base")
-    chassis = [g for g in spec.geoms if g.meshname == "burger_base" and g.contype]
-    for g in [caster] + chassis:
-        g.friction, g.condim, g.priority = caster.friction, caster.condim, 1
+    """The waffle_pi_base mesh includes the ball casters, so its convex hull touches the floor where the model's
+    low-friction caster spheres do, but with friction 1. MuJoCo also takes the larger friction of the two geoms in
+    contact, so even the caster spheres get the floor's friction. Together these drag the rear of the robot: it
+    covers ~60% of the distance the wheels roll and cannot turn on the spot. Give the chassis collision mesh the
+    casters' contact properties, and a higher priority so they are used instead of the floor's."""
+    casters = [g for g in spec.geoms if g.type == mujoco.mjtGeom.mjGEOM_SPHERE and g.parent.name == "base"]
+    chassis = [g for g in spec.geoms if g.meshname == "waffle_pi_base" and g.contype]
+    for g in casters + chassis:
+        g.friction, g.condim, g.priority = casters[0].friction, casters[0].condim, 1
 
 
 def build_model():
@@ -163,7 +159,7 @@ def draw_scan(ranges, size=CAMERA_HEIGHT):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TurtleBot3 Burger 2D lidar + RGB camera test")
+    parser = argparse.ArgumentParser(description="TurtleBot3 Waffle Pi 2D lidar + RGB camera test")
     parser.add_argument("--duration", type=float, default=60.0, help="seconds to run")
     parser.add_argument("--headless", action="store_true", help="no windows, just step and print sensor stats")
     args = parser.parse_args()
@@ -209,7 +205,7 @@ def main():
 
                 rgb = render_camera(renderer, data, camera_option)
                 frame = np.hstack([cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), draw_scan(ranges)])
-                cv2.imshow("TurtleBot3 Burger - RGB camera | 2D lidar", frame)
+                cv2.imshow("TurtleBot3 Waffle Pi - RGB camera | 2D lidar", frame)
                 cv2.waitKey(1)
                 next_sensor_time = data.time + sensor_period
 

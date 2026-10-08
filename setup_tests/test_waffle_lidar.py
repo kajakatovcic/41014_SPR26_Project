@@ -1,5 +1,5 @@
-# Use this script to test the TurtleBot3 Burger 2D lidar in MuJoCo against ground truth.
-# It follows the methods within the subject tutorials using the robot + sensors built in test_burger_sensors.py:
+# Use this script to test the TurtleBot3 Waffle Pi 2D lidar in MuJoCo against ground truth.
+# It follows the methods within the subject tutorials using the robot + sensors built in test_waffle_sensors.py:
 #   Part 1:  Range-bearing measurement model, SE3 sensor/robot frames, constant range noise (Week 4, Part 5),
 #            checked against an analytic ray cast of the arena geometry (Week 4, Part 2 scene simulator). 
 #   Part 2:  Voxel downsampling + statistical outlier removal (Week 4, Part 3), RANSAC wall fitting and
@@ -7,8 +7,8 @@
 #   Part 3:  The robot drives a unicycle circle (Week 7, C.4), and sequential point to plane ICP scan matching
 #            (Week 4 bonus) is chained into LiDAR odometry and compared with ground truth and with
 #            dead reckoning from the wheel encoders through the Week 7 motion model
-# Requirements: everything for test_burger_sensors.py, plus matplotlib, open3d and spatialmath-python.
-# Usage: python setup_tests/test_burger_lidar.py [--sigma 0.01] [--no-plot]
+# Requirements: everything for test_waffle_sensors.py, plus matplotlib, open3d and spatialmath-python.
+# Usage: python setup_tests/test_waffle_lidar.py [--sigma 0.01] [--no-plot]
 import argparse
 
 import matplotlib.pyplot as plt
@@ -17,13 +17,13 @@ import numpy as np
 import open3d as o3d
 from spatialmath import SE3
 
-from test_burger_sensors import LIDAR_ANGLES, LIDAR_POS, LIDAR_RANGE_MAX, build_model, read_lidar
+from test_waffle_sensors import LIDAR_ANGLES, LIDAR_POS, LIDAR_RANGE_MAX, build_model, read_lidar
 
 np.seterr(divide='ignore', invalid='ignore')
 
 # Sensor and robot
 T_RS = SE3(*LIDAR_POS)                  # lidar pose in the robot frame {R}: x forward, y left, z up
-WHEEL_RADIUS, WHEEL_TRACK = 0.033, 0.16
+WHEEL_RADIUS, WHEEL_TRACK = 0.033, 0.288
 SCAN_PERIOD = 0.2                       # s, the LDS-01 spins at 5 Hz
 
 # Unit beam directions in the sensor frame (Week 4 Part 5 with elevation = 0)
@@ -356,7 +356,7 @@ def plot(scene, r1, r2, r3, sigma):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='TurtleBot3 Burger 2D lidar test against ground truth')
+    parser = argparse.ArgumentParser(description='TurtleBot3 Waffle Pi 2D lidar test against ground truth')
     parser.add_argument('--sigma', type=float, default=0.01, help='range noise std dev [m] (Week 4 uses 1 cm)')
     parser.add_argument('--no-plot', action='store_true', help='print results only')
     args = parser.parse_args()

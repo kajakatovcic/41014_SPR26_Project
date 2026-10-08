@@ -2,7 +2,7 @@
 Integrated Project for 41014 Sensors and Control for Mechatronic Systems
 
 ## Project: Track A, mobile robot: visual waypoint navigation
-A TurtleBot3 with a 2D LiDAR and a camera, simulated in MuJoCo. The robot navigates a room with obstacles using the
+A TurtleBot3 Waffle Pi with a 2D LiDAR and an RGB camera, simulated in MuJoCo. The robot navigates a room with obstacles using the
 LiDAR and visually docks to the ArUco-marked charging station.
 
 ### Requirements
@@ -49,6 +49,6 @@ LiDAR and visually docks to the ArUco-marked charging station.
 3. In VS Code, select the interpreter with `Ctrl+Shift+P` → **Python: Select Interpreter** → `.venv\Scripts\python.exe`.
 4. Run the set-up tests to check everything works:
    ```
-   python setup_tests/test_burger_sensors.py
-   python setup_tests/test_burger_lidar.py
+   python setup_tests/test_waffle_sensors.py
+   python setup_tests/test_waffle_lidar.py
    ```
