@@ -1,8 +1,8 @@
-# Evaluate the perception module (src/perception) against ground truth in the Track A world: marking criterion B.
+# Evaluate the perception module (src/perception) against ground truth in the Track A world ,for marking criterion B.
 # The robot is placed at random collision-free poses. At each one the lidar and camera are read through the
-# simulation drivers and processed exactly as the robot would; ground truth from MuJoCo is used only to score them.
-#   Part 1 - lidar: are obstacles found when they are visible, and do the clusters sit on real surfaces?
-#   Part 2 - camera: ArUco detection rate against range and viewing angle, range-bearing errors against the
+# simulation drivers and processed exactly as the robot would. Ground truth from MuJoCo is used only to score them.
+#   Part 1 (LiDAR): are obstacles found when they are visible, and do the clusters sit on real surfaces?
+#   Part 2 (CAMERA): ArUco detection rate against range and viewing angle, range-bearing errors against the
 #            Week 3 noise model sigma_Z = Z^2 sigma_px / (f s), fitted corner bias and scatter, and whether the
 #            covariance handed to the EKF is consistent with the errors actually made
 # Usage: python tests/test_perception.py [--poses 500] [--seed 0] [--no-plot]
@@ -15,17 +15,14 @@ import mujoco
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src import config as cfg                                  # noqa: E402
-from src.perception import perception as per                   # noqa: E402
-from src.simulation import world as sim                        # noqa: E402
+from src import config as cfg                                  
+from src.perception import perception as per                 
+from src.simulation import world as sim                        
 
 _IN = cfg.ROOM_HALF - cfg.WALL_THICK
 F, S = cfg.CAMERA_F_PX, cfg.MARKER_SIDE
 
-
-# ---------------------------------------------------------------------------
 # Ground-truth geometry (evaluation only)
-# ---------------------------------------------------------------------------
 
 def solid_objects():
     """Obstacles and the charging station as 2D shapes in the world frame."""
@@ -37,7 +34,7 @@ def solid_objects():
 
 
 def surface_distance(P, o):
-    """Distance from points P (N x 2) to the boundary of object o; negative inside."""
+    """Distance from points P (N x 2) to the boundary of object o. Negative inside."""
     if o["kind"] == "cylinder":
         return np.linalg.norm(P - o["c"], axis=1) - o["size"]
     q = np.abs(P - o["c"]) - o["size"]
@@ -50,7 +47,7 @@ def wall_distance(P):
 
 def sample_free_poses(n, rng, margin=cfg.ROBOT_RADIUS + 0.05):
     """Random robot poses at least `margin` from every wall and object. Three quarters of them face a random
-    marker (+/- 30 deg) so the camera part has enough data."""
+    marker (+/-30deg) so the camera part has enough data."""
     objs, ids, poses = solid_objects(), list(cfg.MARKERS), []
     while len(poses) < n:
         p = rng.uniform(-_IN + margin, _IN - margin, 2)
@@ -69,16 +66,14 @@ def geom_names(model):
     return [model.geom(i).name or model.body(model.geom_bodyid[i]).name for i in range(model.ngeom)]
 
 
-# ---------------------------------------------------------------------------
-# Part 1: lidar
-# ---------------------------------------------------------------------------
+# Part 1: LiDAR
 
 def lidar_trial(model, data, names, x_true, rng, min_points=4):
     """Process one scan and score it. Returns per-object (visible, detected) and the cluster outcomes.
     An object counts as visible when at least min_points (the DBSCAN minimum) noise-free beams would hit it."""
     res = per.process_scan(sim.read_lidar(model, data, rng), rng, min_points=min_points)
 
-    # Truth: which object each beam would hit, from the true sensor pose
+    # Truth - which object each beam would hit, from the true sensor pose
     T_WS = per.pose_to_SE3(x_true) * cfg.T_RS
     dirs = (T_WS.R @ per.LIDAR_DIRS_S.T).T
     gid, dist = np.zeros(len(dirs), np.int32), np.zeros(len(dirs))
@@ -90,8 +85,8 @@ def lidar_trial(model, data, names, x_true, rng, min_points=4):
     visible = {n for n, rs in beams.items() if len(rs) >= min_points}
 
     # Score each cluster point by the surface it lies on. An object is detected if some cluster holds at least
-    # min_points of its returns (a cluster may also hold the wall behind it); a cluster is false if most of its
-    # points lie on nothing.
+    # min_points of its returns (a cluster may also hold the wall behind it).
+    # A cluster is false if most of its points lie on nothing.
     detected, outcomes, surf = set(), [], []
     for ob in res.obstacles:
         P_W = per.to_world(ob.points, x_true)               # true pose: scoring only
@@ -138,12 +133,10 @@ def report_lidar(trials):
     return ok
 
 
-# ---------------------------------------------------------------------------
-# Part 2: camera
-# ---------------------------------------------------------------------------
+# Part 2: CAMERA
 
 def marker_expected(model, data, x_true, marker_id):
-    """Is the whole marker inside the image and unoccluded? Returns (expected, range, viewing angle)."""
+    """Is the whole marker inside the image and without obstacle in hte way. Returns (expected, range, viewing angle)."""
     T_WC = per.pose_to_SE3(x_true) * cfg.T_RC
     T_WM = cfg.MARKERS[marker_id]
     s = cfg.MARKER_SIDE / 2
@@ -164,7 +157,7 @@ def marker_expected(model, data, x_true, marker_id):
 
 
 def camera_trial(model, data, cam, x_true, rng):
-    obs = per.detect_markers(cam.render(data, rng), bias_px=0.0)   # raw: no bias correction, to fit it
+    obs = per.detect_markers(cam.render(data, rng), bias_px=0.0) # raw: no bias correction, to fit it
     seen = {o.id: o for o in obs}
     rows, false_ids = [], [o.id for o in obs if o.id not in cfg.MARKERS]
     for mid in cfg.MARKERS:
@@ -187,8 +180,8 @@ def report_camera(rows, false_ids):
     ok = True
 
     exp = [r for r in rows if r["expected"]]
-    print("detection rate of fully visible, unoccluded markers (count), required >= 95% within 2 m and 60 deg:")
-    print(f'{"range [m]":>10} {"<30 deg":>10} {"30-60 deg":>10} {">60 deg":>10}')
+    print("detection rate of fully visible, unoccluded markers (count), required >= 95% within 2m and 60deg:")
+    print(f'{"range [m]":>10} {"<30deg":>10} {"30-60deg":>10} {">60deg":>10}')
     rate_ok = []
     for lo, hi in [(0, 1), (1, 2), (2, 3), (3, 4), (4, 6)]:
         cells = []
@@ -208,7 +201,7 @@ def report_camera(rows, false_ids):
     e_rho = np.array([r["e_rho"] for r in det])
     e_alpha = np.array([r["e_alpha"] for r in det])
 
-    # Week 3: a constant corner error delta [px] gives a range error Z^2 delta / (f s). Fit delta (bias) by least
+    # Wk3: a constant corner error delta [px] gives a range error Z^2 delta / (f s). Fit delta (bias) by least
     # squares, then the scatter about it in the same units. Bearing scatter is sigma_px / f.
     g = Z ** 2 / (F * S)
     bias_px = (g @ e_rho) / (g @ g)                         # corners inside the outline make the range too long
@@ -220,7 +213,7 @@ def report_camera(rows, false_ids):
     print(f"fitted range scatter    SIGMA_RANGE_PX   = {sigma_range_px:.3f} px")
     print(f"fitted bearing scatter  SIGMA_BEARING_PX = {sigma_bearing_px:.3f} px")
 
-    # Apply the correction the module would apply, and check the covariance it reports
+    # Apply the correction the module would apply and check the covariance it reports
     e_rho_c = np.array([r["e_rho"] + (per.range_bearing(cfg.T_RC * per.correct_range(r["T_CM"], F, S, bias_px))[0]
                                       - per.range_bearing(cfg.T_RC * r["T_CM"])[0]) for r in det])
     print(f"range error after correction:  mean {1000 * e_rho_c.mean():+.1f} mm, RMS {1000 * np.sqrt(np.mean(e_rho_c**2)):.1f} mm")
@@ -233,8 +226,8 @@ def report_camera(rows, false_ids):
         sig = np.sqrt(np.array([np.diag(per.measurement_covariance(z, F, S, s_r, s_b)) for z in Z]))
         return np.mean(np.abs(e_r) < 2 * sig[:, 0]), np.mean(np.abs(e_alpha) < 2 * sig[:, 1])
 
-    # The module's values must give an unbiased range and an honest covariance (Week 7: an overconfident filter is
-    # the dangerous one). A refit from a different set of poses will differ a little, so it is shown for reference.
+    # The module's values must give an unbiased range and an honest covariance (Wk7: an overconfident filter is
+    # the dangerous one). A refit from a different set of poses will differ a little so it is shown for reference.
     print("errors inside the reported 2-sigma bounds (expect ~95%):")
     for label, params in [("module values", (per.BIAS_PX, per.SIGMA_RANGE_PX, per.SIGMA_BEARING_PX)),
                           ("this run's fit", (bias_px, sigma_range_px, sigma_bearing_px))]:
