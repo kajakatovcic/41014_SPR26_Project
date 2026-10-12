@@ -39,10 +39,23 @@ CAMERA_POS = (0.0855, 0.0, 0.107) # camera centre in the robot frame - front of 
 R_RC = SO3(np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]]))   # robot (x fwd, z up) -> camera (z fwd, y down) from wk9
 T_RC = SE3(*CAMERA_POS) * SE3(R_RC)
 
-# Nominal intrinsics implied by the simulated camera. MuJoCo's principal point is the image centre. In pixel
-# coordinates with pixel centres at integers (OpenCV) that is ((W - 1) / 2, (H - 1) / 2).
+# True intrinsics implied by the simulated camera: GROUND TRUTH, for evaluating the calibration only. MuJoCo's
+# principal point is the image centre. In pixel coordinates with pixel centres at integers (OpenCV) that is
+# ((W - 1) / 2, (H - 1) / 2). MuJoCo renders an ideal pinhole camera, so there is no lens distortion.
 CAMERA_F_PX = (CAMERA_HEIGHT / 2) / np.tan(np.deg2rad(CAMERA_FOVY) / 2)
 CAMERA_PP = ((CAMERA_WIDTH - 1) / 2, (CAMERA_HEIGHT - 1) / 2)
+
+# Calibrated intrinsics used by perception (Week 3 Part B). pinhole model w/ 30 checkerboard views, from
+# tests/test_calibration.py (seed 0, reprojection RMS 0.11px). Rerun that script and update these if the camera
+# changes. The full distortion model fits no better and its parameters are unstable, so lens distortion is not
+# modelled.
+CAMERA_CAL_F = (529.71, 529.88) # (f/rho_u, f/rho_v) [px]
+CAMERA_CAL_PP = (319.32, 239.22) # (u0, v0) [px]
+
+# Checkerboard calibration target (Week 3 Part B). 10 x 7 squares therefore 9 x 6 internal corners. One odd and one even
+# dimension makes the corner order unambiguous.
+CHECKERBOARD_GRID = (9, 6) # internal corners (columns, rows)
+CHECKERBOARD_SQUARE = 0.04 # m
 
 # ArUco markers
 ARUCO_DICT = "4x4_50"

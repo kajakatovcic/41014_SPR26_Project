@@ -101,11 +101,43 @@ def _add_room(spec):
         _add_marker(spec, marker_id, T_WM)
 
 
-def build_world():
+def checkerboard_image(px=60):
+    """The calibration target as a greyscale image: cfg.CHECKERBOARD_GRID internal corners, px pixels per square,
+    with a one-square white border."""
+    nx, ny = cfg.CHECKERBOARD_GRID[0] + 1, cfg.CHECKERBOARD_GRID[1] + 1        # squares
+    img = np.full(((ny + 2) * px, (nx + 2) * px), 255, np.uint8)
+    for r in range(ny):
+        for c in range(nx):
+            if (r + c) % 2 == 0:
+                img[(r + 1) * px:(r + 2) * px, (c + 1) * px:(c + 2) * px] = 0
+    return img
+
+
+def _add_checkerboard(spec):
+    """A checkerboard on a mocap body, so a test can hold it anywhere in front of the camera, like a person holding
+    the board in front of the robot. As with the markers, the body frame {B} has x right, y up and z out of the
+    printed face, with its origin at the centre of the board."""
+    img = checkerboard_image()
+    rgb = np.ascontiguousarray(np.repeat(img[:, :, None], 3, axis=2))
+    tex = spec.add_texture(name="checkerboard", type=mujoco.mjtTexture.mjTEXTURE_2D,
+                           width=rgb.shape[1], height=rgb.shape[0], nchannel=3)
+    tex.data = rgb.tobytes()
+    mat = spec.add_material(name="checkerboard")
+    mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = "checkerboard"
+    half = [(n + 3) * cfg.CHECKERBOARD_SQUARE / 2 for n in cfg.CHECKERBOARD_GRID]   # squares + border
+    body = spec.worldbody.add_body(name="checkerboard", mocap=True, pos=[0, 0, -1])   # parked under the floor
+    body.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[*half, 0.002], pos=[0, 0, -0.002],
+                  material="checkerboard", contype=0, conaffinity=0)
+
+
+def build_world(checkerboard=False):
+    """The Track A world. checkerboard=True adds the calibration target (see set_checkerboard)."""
     spec = mujoco.MjSpec.from_file(str(cfg.TB3_SCENE_XML))
     _fix_caster(spec)
     _add_sensors(spec)
     _add_room(spec)
+    if checkerboard:
+        _add_checkerboard(spec)
     return spec.compile()
 
 
@@ -149,12 +181,20 @@ def read_encoders(model, data):
     return np.round(q / step) * step
 
 
-# Ground truth and test helpers. NOT used by the controller or estimator
+# NOTE for tests only. Ground truth and test helpers. NOT used by the controller or estimator
 
 def true_pose(model, data):
     """True robot pose (x, y, theta) in the world frame. For evaluation only."""
     b = model.body("base").id
     return np.array([data.xpos[b][0], data.xpos[b][1], np.arctan2(data.xmat[b][3], data.xmat[b][0])])
+
+
+def set_checkerboard(model, data, T_WB):
+    """Move the calibration target so its centre frame {B} is at world pose T_WB."""
+    mid = model.body("checkerboard").mocapid[0]
+    data.mocap_pos[mid] = T_WB.t
+    data.mocap_quat[mid] = _quat(T_WB)
+    mujoco.mj_forward(model, data)
 
 
 def set_pose(model, data, x, y, theta):

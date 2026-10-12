@@ -146,18 +146,25 @@ def to_world(P_R, x_hat):
 
 # Camera (Weeks 3, 7, 9)
 
-# Nominal intrinsics of the simulated camera. Will be replaced with the calibrated values once available.
-CAMERA = CentralCamera(f=cfg.CAMERA_F_PX, imagesize=(cfg.CAMERA_WIDTH, cfg.CAMERA_HEIGHT), pp=cfg.CAMERA_PP,
-                       rho=1, name="robot camera")
+# Calibrated intrinsics (Week 3 Part B - tests/test_calibration.py): pinhole model with no lens distortion
+CAMERA = CentralCamera(f=list(cfg.CAMERA_CAL_F), imagesize=(cfg.CAMERA_WIDTH, cfg.CAMERA_HEIGHT),
+                       pp=cfg.CAMERA_CAL_PP, rho=1, name="robot camera")
 
-# Corner localisation model for the Waffle Pi camera, as fitted by tests/test_perception.py over seeds 0-3 (2000
-# poses, ~1800 detections).
-# The detected corners sit BIAS_PX inside the true marker outline on average (per-seed fits 0.58-0.64px). The
+# Corner localisation model for the Waffle Pi camera with the calibrated intrinsics as fitted by
+# tests/test_perception.py over seeds 0-4 (2500 poses, ~2200 detections).
+# The detected corners sit BIAS_PX inside the true marker outline on average (per-seed fits 0.60-0.68px). The
 # scatter is fitted separately for range (from the apparent size so it absorbs PnP errors at oblique vies - fits
-# 0.40-0.46px) and bearing (from the image position of the marker centre - fits 0.22-0.24px), rounded up slightly
-BIAS_PX = 0.61
+# 0.40-0.45px) and bearing (from the image position of the marker centre - fits 0.21-0.25px), rounded up slightly
+BIAS_PX = 0.64
 SIGMA_RANGE_PX = 0.45
 SIGMA_BEARING_PX = 0.24
+
+# Calibration uncertainty of the principal point u0 [px]. tests/test_calibration.py Part 2 gives a spread of
+# 0.06-0.13 px between independent calibrations and the calibration in use is 0.18px out, so 0.2px. An error in u0
+# shifts EVERY bearing by the same angle: 0.18 px biases bearings by 0.02 deg, as large as the bearing noise itself. The truth is unknown
+# on a real robot so the bias cannot be removed. Instead it is added to the bearing variance. This is derived from
+# week 7 - when in doubt, inflate the noise rather than trust an overconfident filter.
+SIGMA_PP_PX = 0.2
 
 
 @dataclass
@@ -177,12 +184,13 @@ def range_bearing(T_RM):
     return np.array([np.hypot(x, y), np.arctan2(y, x)])
 
 
-def measurement_covariance(Z, f=cfg.CAMERA_F_PX, side=cfg.MARKER_SIDE,
-                           sigma_range_px=SIGMA_RANGE_PX, sigma_bearing_px=SIGMA_BEARING_PX):
-    """Noise model for z = [range, bearing] (Week 3 wrap-up):
+def measurement_covariance(Z, f=CAMERA.K[0, 0], side=cfg.MARKER_SIDE,
+                           sigma_range_px=SIGMA_RANGE_PX, sigma_bearing_px=SIGMA_BEARING_PX, sigma_pp_px=SIGMA_PP_PX):
+    """Noise model for z = [range, bearing] (Week 3):
          range comes from apparent size, sigma_Z ~ Z^2 sigma_px / (f s) so it grows with the SQUARE of the range.
-         bearing comes from the image position of the marker centre, sigma_alpha ~ sigma_px / f, constant."""
-    return np.diag([(Z ** 2 * sigma_range_px / (f * side)) ** 2, (sigma_bearing_px / f) ** 2])
+         bearing comes from the image position of the marker centre, sigma_alpha ~ sigma_px / f, constant, plus the
+         principal point's calibration uncertainty, which acts on the bearing in the same way."""
+    return np.diag([(Z ** 2 * sigma_range_px / (f * side)) ** 2, (sigma_bearing_px ** 2 + sigma_pp_px ** 2) / f ** 2])
 
 
 def correct_range(T_CM, f, side, bias_px):

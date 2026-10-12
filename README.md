@@ -69,8 +69,14 @@ LiDAR and visually docks to the ArUco-marked charging station.
   covariance `R` from the Week 3 model (range sigma grows with range squared and bearing sigma is constant).
   Detections are checked against the marker map which rejects reflections in the floor.
 
-This subsystem is evaluated against ground truth (about 30sec with 500 random poses):
+- **Camera calibration** (Week 3 - B & C): `src/perception/calibration.py` calibrates from checkerboard
+  images (9 x 6 internal corners, 40mm squares) and checks the per-image reprojection error. Perception uses the
+  calibrated intrinsics in `src/config.py` (`CAMERA_CAL_F`, `CAMERA_CAL_PP`) and not the simulator's true values.
+
+Both are evaluated against ground truth. Run the calibration first, since perception uses its result:
 ```
-python tests/test_perception.py
+python tests/test_calibration.py   # calibration, repeatability, camera mount check
+python tests/test_perception.py    # 500 random poses
 ```
-The corner bias and noise values in `perception.py` come from this script and must be rerun if the camera, markers or detector change.
+`test_calibration.py` gives the calibrated intrinsics for `src/config.py`. The corner bias and noise values in
+`perception.py` come from `test_perception.py`. Rerun both if the camera, markers or detector change.
