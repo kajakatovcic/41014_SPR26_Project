@@ -22,7 +22,7 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | `src/perception/` | LiDAR processing (obstacles, walls) + ArUco range-and-bearing measurements with their covariance |
 | `src/estimation/` | EKF: encoder odometry prediction, camera range-and-bearing/pose correction |
 | `src/control/` | State-space model and the state-feedback/LQR trajectory tracker |
-| `tests/` | Evaluation of each module against ground truth (e.g. `test_perception.py`) |
+| `tests/` | Evaluation of each module against ground truth (`test_calibration.py`, `test_perception.py`, `test_model.py`) |
 | `setup_tests/` | Scripts to check the environment, MuJoCo and the TurtleBot3 sensors (see [setup_tests/README.md](setup_tests/README.md)) |
 | `robotis_mujoco_menagerie/` | ROBOTIS MuJoCo models (git submodule), TurtleBot3 in `robotis_tb3/` |
 
@@ -47,7 +47,7 @@ LiDAR and visually docks to the ArUco-marked charging station.
    ```
    python3.12 -m venv .venv
    .venv\Scripts\activate
-   python -m pip install mujoco numpy matplotlib open3d spatialmath-python tqdm
+   python -m pip install mujoco numpy matplotlib open3d spatialmath-python tqdm control sympy
    python -m pip install opencv-contrib-python==4.10.0.84
    python -m pip install --no-deps machinevision-toolbox-python
    python -m pip install mvtb-data ansitable pgraph-python
@@ -80,3 +80,49 @@ python tests/test_perception.py    # about 30 s: 500 random poses
 ```
 `test_calibration.py` gives the calibrated intrinsics for `src/config.py`. The corner bias and noise values in
 `perception.py` come from `test_perception.py`. Rerun both if the camera, markers or detector change.
+
+## State-space model
+`src/control/model.py` is the model of the Waffle Pi that the estimator and controller share.
+
+- **Kinematics:** wheel speeds ↔ (v, ω) for the 0.033m wheels and 0.288m track. Commands that would exceed
+  the wheel limit are scaled down keeping the path curvature.
+- **Wheel actuators:** each wheel turns `frictionloss / kv = 1.0 rad/s` slower than commanded with a 0.11sec 
+  lag (both derived from the MuJoCo model's parameters). Additionally turning resistance costs a constant
+  0.02rad/s of turn rate. `unicycle_to_wheels()` compensates for both. The usable top speed is 0.227m/s.
+- **Unicycle** `x = (x, y, θ)`, `u = (v, ω)`: the continuous model (Week 5 D) and the exact-arc discrete model
+  with its Jacobian (Week 7 C.4) for the EKF
+- **Tracking-error model** about a reference moving at (v_r, ω_r): the 3-state model and the 2-state
+  cross-track/heading model of Weeks 5 D and 8 B, discretised by zero-order hold at `CONTROL_DT` = 0.05sec.
+
+To check the derivation, controllability, observability, discretisation and the model against the MuJoCo robot:
+```
+python tests/test_model.py   # about 10sec
+```
+
+## Running the full loop
+`main.py` runs the mission in `src/config.py` (`START_POSE`, `WAYPOINTS`): simulation → sensor drivers →
+perception → estimator → controller → wheel commands. Control and estimation run at 20Hz, the camera at 10Hz and
+the lidar at 5Hz. The estimator and controller only receive sensor data and the estimate. Ground truth is logged
+for **EVALUATION ONLY**.
+```
+python main.py              # headless: prints a summary and shows the map and estimation-error plots
+python main.py --viewer     # watch it in the MuJoCo viewer, in real time
+```
+The EKF drives the controller (`--estimator dr` uses dead reckoning instead). The simulated encoders have
+realistic odometry errors (`SIM_WHEEL_SCALE_ERROR`, `SIM_WHEEL_SLIP_SIGMA` in `src/config.py`) which are unknown to the
+robot's software. Current placeholder: `WaypointFollower` in `src/control/control.py` (to become the LQR tracker
+and docking).
+
+## Estimation
+`src/estimation/estimation.py` is an EKF on the pose (x, y, θ), built from the Week 7 C functions:
+
+- **Predict:** the exact-arc unicycle model driven by the encoder odometry. Q_d comes from a wheel odometry error
+  model (radius uncertainty + slip) mapped onto the pose through the motion model's Jacobian.
+- **Update:** each ArUco range and bearing measurement against the marker map, with perception's covariance, the
+  bearing innovation wrapped, and a chi-square gate on the innovation to reject outliers.
+- **Tuning** (`EKF_Q_SCALE`, `EKF_R_SCALE` in `src/config.py`) chosen by NEES over repeated missions (Week 7 D.3 + D.4).
+
+To evaluate it over repeated missions with random odometry errors (~2min):
+```
+python tests/test_estimation.py
+```

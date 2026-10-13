@@ -21,6 +21,31 @@ WHEEL_TRACK = 0.288 # m, distance between the wheels
 WHEEL_SPEED_MAX = 7.88 # rad/s, actuator limit in the model (0.26m/s)
 ENCODER_TICKS = 4096  # per wheel revolution (Dynamixel XM430)
 ROBOT_RADIUS = 0.25 # m, circle around the robot origin that contains the chassis (x -0.197..0.086, y +/-0.153)
+CONTROL_DT = 0.05 # sec, control and estimation period (20Hz) - under half the wheel actuators' 0.11sec time constant
+
+# Odometry errors injected by the SIMULATION's encoder driver (the robot's software does not know these values).
+# The MuJoCo wheels roll without slipping so without them dead reckoning would be unrealistically perfect.
+#   systematic: each wheel's effective radius differs from the nominal WHEEL_RADIUS the software assumes (tyre
+#               wear, load, manufacturing) by a different amount left and right causing heading drift
+#   random:     slip, a random walk on each wheel angle whose variance grows with the angle turned
+SIM_WHEEL_SCALE_ERROR = (+0.008, -0.004) # (left, right) fractional radius error, typical 0.1-1 % (UMBmark)
+SIM_WHEEL_SLIP_SIGMA = 0.02 # rad per sqrt(rad turned)
+
+# EKF (criterion C). What the FILTER assumes about odometry and its starting point. This is tuned in tests/test_estimation.py.
+EKF_WHEEL_SCALE_SIGMA = 0.01 # fractional uncertainty of each wheel's effective radius
+EKF_WHEEL_SLIP_SIGMA = 0.02 # rad per sqrt(rad turned)
+# Noise scales, tuned by NEES over repeated missions (tests/test_estimation.py, Week 7 D.3/D.4: "pick Q_d by NEES,
+# and if you cannot settle it, err high"). With both at 1 the filter was overconfident (NEES 6.7 against 3):
+#   Q x3: the wheel-radius error is a constant bias but the noise model treats it as fresh noise each step, so
+#         its variance grows like N instead of N^2 over a stretch without markers
+#   R range x5: consecutive camera frames see the same marker with nearly the same RANGE error (corner bias and
+#         calibration repeat frame to frame. the innovations' autocorrelation is +0.31 one frame apart), so the
+#         10Hz range measurements are not independent. Errors correlated over ~n frames carry about 1/n of the
+#         information each: R_eff ~ n R. Bearing errors are uncorrelated (+0.02) so bearing is left alone.
+EKF_Q_SCALE = 3.0 # overall scale on the odometry noise
+EKF_R_SCALE = (5.0, 1.0) # scales on perception's per-frame (range, bearing) variances
+EKF_P0 = (0.05, 0.05, np.deg2rad(3.0)) # prior std devs on the start pose (x [m], y [m], theta [rad])
+EKF_GATE = 11.83 # chi-square 2 dof, 99.7 %: reject marker measurements beyond this NIS
 
 # 2D lidar (LDS-01)
 LIDAR_NUM_RAYS = 360
@@ -94,3 +119,10 @@ OBSTACLES = [   # name, kind, centre (x, y), size (box half sizes or cylinder ra
     ("box_blue", "box", (-0.9, 0.9), (0.25, 0.1), 0.4),
     ("cyl_yellow", "cylinder", (-0.7, -0.3), 0.08, 0.4),
 ]
+
+# MISSION: start pose and waypoints. Routed so the robot (ROBOT_RADIUS) clears every obstacle and wall by >= 0.15m.
+# The last waypoint is a pre-docking pose 0.35m in front of the charging station, on the marker's normal.
+START_POSE = (-1.5, -1.5, 0.0) # x, y [m], theta [rad]: the estimator's prior; the robot is placed here
+WAYPOINTS = [(1.2, -1.45), (1.2, 0.2), (1.2, 1.0), (1.45, 1.0)]
+WAYPOINT_TOL = 0.15 # m, switch to the next waypoint inside this distance
+GOAL_TOL = 0.05 # m, the last waypoint counts as reached inside this distance

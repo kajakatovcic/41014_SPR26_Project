@@ -130,12 +130,14 @@ def _add_checkerboard(spec):
                   material="checkerboard", contype=0, conaffinity=0)
 
 
-def build_world(checkerboard=False):
-    """The Track A world. checkerboard=True adds the calibration target (see set_checkerboard)."""
+def build_world(checkerboard=False, room=True):
+    """The Track A world. checkerboard=True adds the calibration target (see set_checkerboard). room=False leaves
+    out the walls, obstacles and markers. Open floor for driving tests."""
     spec = mujoco.MjSpec.from_file(str(cfg.TB3_SCENE_XML))
     _fix_caster(spec)
     _add_sensors(spec)
-    _add_room(spec)
+    if room:
+        _add_room(spec)
     if checkerboard:
         _add_checkerboard(spec)
     return spec.compile()
@@ -175,10 +177,33 @@ class Camera:
 
 
 def read_encoders(model, data):
-    """Left and right wheel angles [rad], quantised to the encoder resolution."""
+    """Left and right wheel angles [rad], quantised to the encoder resolution. Ideal wheels: no odometry error."""
     q = data.qpos[[model.joint("wheel_left").qposadr[0], model.joint("wheel_right").qposadr[0]]]
     step = 2 * np.pi / cfg.ENCODER_TICKS
     return np.round(q / step) * step
+
+
+class Encoders:
+    """Wheel encoders with realistic odometry errors so the reported angles turn into the wrong distances when the
+    software multiplies them by the nominal radius:
+        reported increment = true increment x (1 + scale_error) + slip noise, slip variance = slip_sigma^2 |increment|
+    then quantised to the encoder resolution. Errors accumulate as they would on the real robot."""
+
+    def __init__(self, model, data, scale_error=cfg.SIM_WHEEL_SCALE_ERROR, slip_sigma=cfg.SIM_WHEEL_SLIP_SIGMA):
+        self.adr = [model.joint("wheel_left").qposadr[0], model.joint("wheel_right").qposadr[0]]
+        self.scale = 1 + np.array(scale_error, float)
+        self.slip_sigma = slip_sigma
+        self.last_true = data.qpos[self.adr].copy()
+        self.reported = self.last_true.copy()
+
+    def read(self, data, rng):
+        """Left and right wheel angles [rad] as the encoders report them."""
+        q = data.qpos[self.adr]
+        d = q - self.last_true
+        self.last_true = q.copy()
+        self.reported += d * self.scale + rng.normal(0, 1, 2) * self.slip_sigma * np.sqrt(np.abs(d))
+        step = 2 * np.pi / cfg.ENCODER_TICKS
+        return np.round(self.reported / step) * step
 
 
 # NOTE for tests only. Ground truth and test helpers. NOT used by the controller or estimator
