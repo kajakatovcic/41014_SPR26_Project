@@ -45,7 +45,7 @@ LiDAR and visually docks to the ArUco-marked charging station.
    If you have already cloned it, run `git submodule update --init`.
 2. Create the virtual environment and install the packages (Python 3.12):
    ```
-   python -m venv .venv
+   python3.12 -m venv .venv
    .venv\Scripts\activate
    python -m pip install mujoco numpy matplotlib open3d spatialmath-python tqdm
    python -m pip install opencv-contrib-python==4.10.0.84
@@ -75,8 +75,8 @@ LiDAR and visually docks to the ArUco-marked charging station.
 
 Both are evaluated against ground truth. Run the calibration first, since perception uses its result:
 ```
-python tests/test_calibration.py   # calibration, repeatability, camera mount check
-python tests/test_perception.py    # 500 random poses
+python tests/test_calibration.py   # about 1 min: calibration, repeatability, camera mount check
+python tests/test_perception.py    # about 30 s: 500 random poses
 ```
 `test_calibration.py` gives the calibrated intrinsics for `src/config.py`. The corner bias and noise values in
 `perception.py` come from `test_perception.py`. Rerun both if the camera, markers or detector change.
