@@ -15,12 +15,17 @@ import mujoco
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src import config as cfg                                  
-from src.perception import perception as per                 
-from src.simulation import world as sim                        
+from machinevisiontoolbox import CentralCamera
+from src import config as cfg
+from src.perception import perception as per
+from src.simulation import world as sim
 
 _IN = cfg.ROOM_HALF - cfg.WALL_THICK
-F, S = cfg.CAMERA_F_PX, cfg.MARKER_SIDE
+F, S = per.CAMERA.K[0, 0], cfg.MARKER_SIDE # the calibrated focal length the module uses
+
+# The camera the simulator actually renders- ground truth used only to decide which markers are in view
+TRUE_CAMERA = CentralCamera(f=cfg.CAMERA_F_PX, imagesize=(cfg.CAMERA_WIDTH, cfg.CAMERA_HEIGHT), pp=cfg.CAMERA_PP,
+                            rho=1)
 
 # Ground-truth geometry (evaluation only)
 
@@ -147,7 +152,7 @@ def marker_expected(model, data, x_true, marker_id):
     angle = np.degrees(np.arccos(np.clip(T_WM.R[:, 2] @ to_cam / np.linalg.norm(to_cam), -1, 1)))
     if np.any(p_C[2] <= 0) or angle >= 90:
         return False, rng_, angle
-    uv = per.CAMERA.project_point(corners, pose=T_WC)
+    uv = TRUE_CAMERA.project_point(corners, pose=T_WC)
     if np.any(uv < 0) or np.any(uv[0] > cfg.CAMERA_WIDTH - 1) or np.any(uv[1] > cfg.CAMERA_HEIGHT - 1):
         return False, rng_, angle
     gid = np.zeros(1, np.int32)
