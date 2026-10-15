@@ -76,10 +76,10 @@ def run_trials(n, seed0=100):
         log, ctrl = main.run(seed=seed0 + i, encoder_errors=(scale_err, cfg.SIM_WHEEL_SLIP_SIGMA))
         trials.append((log, ctrl, scale_err))
         a = log.arrays()
-        goal = np.hypot(*(np.array(cfg.WAYPOINTS[-1]) - a["true"][-1, :2]))
+        dist, lat, _ = main.docking_errors(a["true"][-1])
         print(f"trial {i}: wheel radius errors ({100 * scale_err[0]:+.2f}%, {100 * scale_err[1]:+.2f}%), "
-              f"{a['t'][-1]:.0f} s, goal {'reached' if ctrl.done else 'NOT reached'}, true goal error "
-              f"{1000 * goal:.0f} mm")
+              f"{a['t'][-1]:.0f} s, {'docked' if ctrl.done else 'NOT docked'}, true docking error "
+              f"{1000 * np.hypot(dist, lat):.0f} mm")
     return trials
 
 
@@ -99,7 +99,7 @@ def part1(trials):
     print(f"mean RMS position error: EKF {1000 * np.mean(rms_ekf):.1f} mm, dead reckoning "
           f"{1000 * np.mean(rms_dr):.0f} mm")
     ok &= np.mean(rms_ekf) < 0.25 * np.mean(rms_dr)
-    print("every mission reached its goal and the EKF is more than 4x better than dead reckoning: "
+    print("every mission docked and the EKF is more than 4x better than dead reckoning: "
           + ("PASS" if ok else "FAIL"))
     return ok
 

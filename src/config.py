@@ -120,9 +120,15 @@ OBSTACLES = [   # name, kind, centre (x, y), size (box half sizes or cylinder ra
     ("cyl_yellow", "cylinder", (-0.7, -0.3), 0.08, 0.4),
 ]
 
-# MISSION: start pose and waypoints. Routed so the robot (ROBOT_RADIUS) clears every obstacle and wall by >= 0.15m.
-# The last waypoint is a pre-docking pose 0.35m in front of the charging station, on the marker's normal.
+# MISSION: start pose and waypoints. Routed so the robot (ROBOT_RADIUS) clears every obstacle and wall by >= 0.14m.
+# The last waypoint is the pre-dock pose, on the dock marker's normal with the camera ~0.6 m from the marker, where
+# the robot turns to face the station and switches to visual docking.
 START_POSE = (-1.5, -1.5, 0.0) # x, y [m], theta [rad]: the estimator's prior; the robot is placed here
-WAYPOINTS = [(1.2, -1.45), (1.2, 0.2), (1.2, 1.0), (1.45, 1.0)]
-WAYPOINT_TOL = 0.15 # m, switch to the next waypoint inside this distance
-GOAL_TOL = 0.05 # m, the last waypoint counts as reached inside this distance
+WAYPOINTS = [(1.2, -1.45), (1.2, 0.2), (1.1, 1.0)]
+WAYPOINT_TOL = 0.15 # m, switch to the next waypoint inside this distance (placeholder WaypointFollower)
+GOAL_TOL = 0.05 # m, the last waypoint counts as reached inside this distance (placeholder WaypointFollower)
+
+# Docking (Week 9 D3)- stop with the camera DOCK_DISTANCE in front of the dock marker, centred on it. The camera can
+# only decode the marker while its 0.2m plate fits in the 480 x image height: Z >= 0.2m x 530px / 480px = 0.22m
+DOCK_DISTANCE = 0.25 # m, camera to marker when docked
+DOCK_TOL = (0.01, 0.01) # m, docked when |depth - DOCK_DISTANCE| and |lateral offset| are both inside these

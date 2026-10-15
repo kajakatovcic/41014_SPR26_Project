@@ -116,6 +116,15 @@ class EKF:
         self.nis, self.rejected = [], 0
         self.innovations = [] # (camera frame, marker id, innovation whitened by S^-1/2)
         self.frame = 0 # camera frames passed to update()
+        self.reject_streak = 0 # consecutive camera frames whose marker measurements were ALL rejected
+        self.recoveries = [] # camera frames at which the covariance was re-inflated
+
+    # Lock-out recovery (criterion E). The gate trusts P. If the robot is moved in a way odometry cannot see (a push,
+    # a wrong start pose), P stays small, every correct measurement fails the gate, and the filter never corrects
+    # itself. When every marker measurement has been rejected for RECOVER_FRAMES frames in a row, the filter
+    # concludes that it, not the camera, is wrong, and inflates P so the measurements are accepted again.
+    RECOVER_FRAMES = 5 # 0.5 s at 10 Hz
+    RECOVER_SIGMA = (0.3, 0.3, np.deg2rad(30.0))
 
     def predict(self, u, dt):
         Qd = self.q_scale * odometry_noise(self.x, u, dt)
@@ -126,11 +135,26 @@ class EKF:
     def update(self, observations):
         """Correct with the marker observations of one camera frame (perception.MarkerObservation list)."""
         self.frame += 1
+        known = [o for o in observations if o.id in self.markers]
+        accepted = self._update(known)
+        if known and accepted == 0:
+            self.reject_streak += 1
+            if self.reject_streak >= self.RECOVER_FRAMES:
+                self.P = self.P + np.diag(np.square(self.RECOVER_SIGMA))
+                self.recoveries.append(self.frame)
+                self.reject_streak = 0
+                self._update(known)
+        elif accepted:
+            self.reject_streak = 0
+
+    def _update(self, observations):
+        """Sequential updates with gating; returns how many measurements were accepted."""
+        accepted = 0
         for obs in observations:
             mk = self.markers.get(obs.id)
             if mk is None:
                 continue
-            # Gate before committing: NIS = nu^T S^-1 nu is chi-square with 2 dof for a consistent filter
+            # Gate before committing- NIS = nu^T S^-1 nu is chi-square with 2 dof for a consistent filter
             R = self.r_sqrt @ obs.R @ self.r_sqrt
             H = H_rb(self.x, mk)
             nu = rb_residual(obs.z, h_rb(self.x, mk))
@@ -145,6 +169,8 @@ class EKF:
                                               R, residual=rb_residual)
             self.x[2] = model.wrap(self.x[2])
             self.P = (self.P + self.P.T) / 2 # keep it symmetric against round-off
+            accepted += 1
+        return accepted
 
 
 class DeadReckoning:

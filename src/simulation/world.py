@@ -34,7 +34,7 @@ def _quat(T):
     return UnitQuaternion(T.R).vec
 
 
-def _add_sensors(spec):
+def _add_sensors(spec, camera_fovy=cfg.CAMERA_FOVY):
     base = spec.body("base")
 
     # 2D lidar: one rangefinder per beam measuring along the site's +z axis. Rangefinders ignore the body they
@@ -49,7 +49,7 @@ def _add_sensors(spec):
     # Camera looking out of the Waffle's camera housing. 
     # MuJoCo cameras look along -z with +y up so rotate {C} (z forward, y down) by Rx(pi)
     T = cfg.T_RC * SE3.Rx(np.pi)
-    base.add_camera(name=CAMERA_NAME, pos=T.t, quat=_quat(T), fovy=cfg.CAMERA_FOVY)
+    base.add_camera(name=CAMERA_NAME, pos=T.t, quat=_quat(T), fovy=camera_fovy)
 
 
 def marker_image(marker_id, px=600, pad=100):
@@ -76,7 +76,9 @@ def _add_marker(spec, marker_id, T_WM):
                   material=f"aruco_{marker_id}", contype=0, conaffinity=0)
 
 
-def _add_room(spec):
+def _add_room(spec, markers=None, extra_obstacles=()):
+    """Walls, obstacles, dock and markers. markers (default cfg.MARKERS) can leave some out and extra_obstacles
+    (same format as cfg.OBSTACLES) adds ones that are not in the robot's map. For robustness"""
     world = spec.worldbody
     h, t, z = cfg.ROOM_HALF, cfg.WALL_THICK, cfg.WALL_HEIGHT / 2
     for name, pos, size in [("wall_xp", [h, 0, z], [t, h, z]), ("wall_xn", [-h, 0, z], [t, h, z]),
@@ -85,7 +87,7 @@ def _add_room(spec):
 
     colours = {"red": [0.85, 0.1, 0.1, 1], "green": [0.1, 0.7, 0.2, 1],
                "blue": [0.1, 0.3, 0.85, 1], "yellow": [0.9, 0.8, 0.1, 1]}
-    for name, kind, (x, y), size, height in cfg.OBSTACLES:
+    for name, kind, (x, y), size, height in list(cfg.OBSTACLES) + list(extra_obstacles):
         rgba = colours.get(name.split("_")[-1], [0.5, 0.5, 0.5, 1])
         if kind == "box":
             world.add_geom(name=name, type=mujoco.mjtGeom.mjGEOM_BOX, pos=[x, y, height / 2],
@@ -97,7 +99,7 @@ def _add_room(spec):
     sx, sy, sz = cfg.DOCK_SIZE
     world.add_geom(name="dock", type=mujoco.mjtGeom.mjGEOM_BOX, pos=[*cfg.DOCK_POS, sz], size=[sx, sy, sz],
                    rgba=[0.25, 0.25, 0.28, 1])
-    for marker_id, T_WM in cfg.MARKERS.items():
+    for marker_id, T_WM in (cfg.MARKERS if markers is None else markers).items():
         _add_marker(spec, marker_id, T_WM)
 
 
@@ -130,14 +132,17 @@ def _add_checkerboard(spec):
                   material="checkerboard", contype=0, conaffinity=0)
 
 
-def build_world(checkerboard=False, room=True):
+def build_world(checkerboard=False, room=True, camera_fovy=cfg.CAMERA_FOVY, markers=None, extra_obstacles=()):
     """The Track A world. checkerboard=True adds the calibration target (see set_checkerboard). room=False leaves
-    out the walls, obstacles and markers. Open floor for driving tests."""
+    out the walls, obstacles and markers. Open floor for driving tests.
+    From robustness testing: camera_fovy different from cfg.CAMERA_FOVY makes the real camera differ from the one
+    perception was calibrated for. Markers leaves landmarks out of the world (the robot's map still has them).
+    extra_obstacles adds obstacles the robot's route does not know about."""
     spec = mujoco.MjSpec.from_file(str(cfg.TB3_SCENE_XML))
     _fix_caster(spec)
-    _add_sensors(spec)
+    _add_sensors(spec, camera_fovy)
     if room:
-        _add_room(spec)
+        _add_room(spec, markers, extra_obstacles)
     if checkerboard:
         _add_checkerboard(spec)
     return spec.compile()
@@ -212,6 +217,36 @@ def true_pose(model, data):
     """True robot pose (x, y, theta) in the world frame. For evaluation only."""
     b = model.body("base").id
     return np.array([data.xpos[b][0], data.xpos[b][1], np.arctan2(data.xmat[b][3], data.xmat[b][0])])
+
+
+def robot_collisions(model, data):
+    """Names of everything the robot's body or wheels touch other than the floor, for Evaluation only."""
+    robot = {model.body(n).id for n in ("base", "wheel_left", "wheel_right")}
+    floor = model.geom("floor").id
+    hits = set()
+    for i in range(data.ncon):
+        c = data.contact[i]
+        b1, b2 = model.geom_bodyid[c.geom1], model.geom_bodyid[c.geom2]
+        if (b1 in robot) != (b2 in robot) and floor not in (c.geom1, c.geom2):
+            other = c.geom2 if b1 in robot else c.geom1
+            hits.add(model.geom(other).name or model.body(model.geom_bodyid[other]).name)
+    return hits
+
+
+PUSH_DURATION = 0.2 # sec
+
+
+def push(model, data, force):
+    """ A push/shove from the side- horizontal force [N] to the robot's left (negative is to its right) applied
+    at the chassis' centre of mass and held until push_end(). The robot slides and twists and the wheels do not
+    turn with it so the encoders never see it. On this robot 0.2sec at 12N barely movies it. 15N moves it ~5cm
+    and turns it ~11deg, 17N ~9 cm and ~18deg. For robustness testing."""
+    th = true_pose(model, data)[2]
+    data.xfrc_applied[model.body("base").id, :3] = force * np.array([-np.sin(th), np.cos(th), 0.0])
+
+
+def push_end(model, data):
+    data.xfrc_applied[model.body("base").id] = 0
 
 
 def set_checkerboard(model, data, T_WB):
