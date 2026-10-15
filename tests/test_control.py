@@ -1,9 +1,13 @@
-# Evaluate the controller (src/control/control.py) 
+# Evaluate the controller (src/control/control.py)
+#   Part 0 - the route: clearance of the planned path from the known obstacles and walls, beyond the robot's
+#            radius (Anthony Fava's check, src/control/mission.py), for the spline and for straight segments
 #   Part 1 - LQR design (from wk6 A.5)- Bryson's rule, the gain and the closed-loop poles across driving speeds
 #   Part 2 - trade-off (wk6 A.5)- sweeping R from aggressive to gentle on the linear model and checking each
 #            design on the nonlinear unicycle WITH the 0.11sec wheel lag (which the LQR model leaves out)
-#   Part 3 - missions- the full loop (EKF + controller) over repeated trials with random odometry errors, LQR
-#            mission controller against the Week 8 C.4 placeholder and scored against ground truth
+#   Part 3 - missions- the full loop (EKF + controller) over repeated trials with random odometry errors: the
+#            mission controller on the spline route (with Anthony's spline geometry + curvature feed-forward),
+#            the same controller on straight segments (turning on the spot at corners), and the Week 8 C.4
+#            placeholder, scored against ground truth
 #   Part 4 - docking from offset starts: the Week 9 D3 law regulates range and bearing only so how much lateral
 #            and heading error is left when the robot starts off the marker's normal?
 # Usage: python tests/test_control.py [--trials 3] [--no-plot]
@@ -11,7 +15,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import control as ct
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -26,12 +29,28 @@ V0 = 0.15 # nominal tracking speed
 R_SCALES = [0.01, 0.1, 1.0, 10.0, 100.0]
 
 
+# PART 0: the route
+
+def part0():
+    from src.control.mission import clearance
+    print("\n=== Part 0: route clearance beyond the robot's radius (Anthony Fava's check, src/control/mission.py)")
+    ok = True
+    for name, smooth in [("spline (used)", True), ("straight segments", False)]:
+        path = ctl.MissionController(smooth=smooth).path
+        obs, wall = clearance(path.xy)
+        ok &= not smooth or (obs >= 0.05 and wall >= 0.05)
+        print(f"{name:>18}: length {path.s[-1]:.2f} m, clearance from obstacles {100 * obs:.1f} cm, "
+              f"walls {100 * wall:.1f} cm")
+    print("the spline route keeps at least 5 cm beyond the robot's radius: " + ("PASS" if ok else "FAIL"))
+    return ok
+
+
 # PARTS 1 and 2: design on the model
 
 def part1():
     print("\n=== Part 1: LQR design (Week 6 A.5, Bryson's rule)")
     print(f"largest acceptable values: e_y {1000 * ctl.E_Y_MAX:.0f} mm, e_theta {np.degrees(ctl.E_TH_MAX):.0f} deg, "
-          f"steering {ctl.DW_MAX} rad/s  ->  Q = diag{tuple(np.round(np.diag(ctl.Q_LQR), 1))}, "
+          f"steering {ctl.DW_MAX} rad/s  ->  Q = diag({ctl.Q_LQR[0, 0]:.1f}, {ctl.Q_LQR[1, 1]:.1f}), "
           f"R = {ctl.R_LQR.item():.1f}")
     print(f'{"v [m/s]":>8} {"K (e_y, e_theta)":>22} {"|z| closed loop":>18} {"time constants [s]":>22} {"damping":>8}')
     ok = True
@@ -103,7 +122,7 @@ def part2():
 def mission_metrics(log, controller):
     a = log.arrays()
     tracking = a["mode"] == "track"
-    d = main.path_errors(a["true"][tracking, :2]) if tracking.any() else np.array([np.nan])
+    d = main.path_errors(a["true"][tracking, :2], log.ref_path) if tracking.any() else np.array([np.nan])
     w = a["cmd"][:, 1]
     out = dict(time=a["t"][-1], done=bool(controller.done), path_rms=np.sqrt(np.mean(d ** 2)), path_max=d.max(),
                w_rms=np.sqrt(np.mean(w ** 2)), dw_rms=np.sqrt(np.mean(np.diff(w) ** 2)) / DT, true=a["true"])
@@ -113,10 +132,10 @@ def mission_metrics(log, controller):
 
 
 def part3(n):
-    print(f"\n=== Part 3: missions, LQR mission controller against the Week 8 C.4 placeholder ({n} trials each)")
+    print(f"\n=== Part 3: missions, spline route vs straight segments vs the Week 8 C.4 placeholder ({n} trials each)")
     rng = np.random.default_rng(200)
     errs = [rng.uniform(-0.008, 0.008, 2) for _ in range(n)]
-    res = {"lqr": [], "simple": []}
+    res = {"lqr": [], "straight": [], "simple": []}
     for name in res:
         for i in range(n):
             log, c = main.run(seed=200 + i, controller=name, encoder_errors=(errs[i], cfg.SIM_WHEEL_SLIP_SIGMA))
@@ -129,14 +148,15 @@ def part3(n):
                     if "dock" in m else f'{"(no docking)":>32}')
             print(f"{name:>11} {i:>6} {str(m['done']):>5} {m['time']:>5.1f} s {1000 * m['path_rms']:>6.1f} mm "
                   f"{1000 * m['path_max']:>6.0f} mm {m['w_rms']:>5.2f} rad/s {m['dw_rms']:>9.2f} rad/s2 | {dock}")
-    lq = res["lqr"]
+    lq = res["lqr"] + res["straight"]
     ok = all(m["done"] for m in lq)
-    ok &= np.mean([m["path_rms"] for m in lq]) < np.mean([m["path_rms"] for m in res["simple"]])
+    ok &= np.mean([m["path_rms"] for m in res["lqr"]]) < np.mean([m["path_rms"] for m in res["simple"]])
     ok &= all(abs(m["dock"][0]) < 0.02 and abs(m["dock"][1]) < 0.02 and abs(np.degrees(m["dock"][2])) < 3 for m in lq)
-    print(f"mean path RMS: LQR {1000 * np.mean([m['path_rms'] for m in lq]):.1f} mm, placeholder "
-          f"{1000 * np.mean([m['path_rms'] for m in res['simple']]):.1f} mm")
-    print("every LQR mission docked within 20 mm and 3 deg, and tracks the path more tightly than the placeholder: "
-          + ("PASS" if ok else "FAIL"))
+    for name in res:
+        print(f"{name:>9}: mean time {np.mean([m['time'] for m in res[name]]):.1f} s, mean path RMS "
+              f"{1000 * np.mean([m['path_rms'] for m in res[name]]):.1f} mm, max {1000 * max(m['path_max'] for m in res[name]):.0f} mm")
+    print("every mission controller run docked within 20 mm and 3 deg, and the spline controller tracks its path more "
+          "tightly than the placeholder: " + ("PASS" if ok else "FAIL"))
     return ok, res
 
 
@@ -177,13 +197,18 @@ def plot(rows2, res3, rows4):
     a.set_title("Part 2: recovery from 100 mm off the path")
 
     a = ax[1, 0]
-    for name, style in [("simple", ":"), ("lqr", "-")]:
+    for name, style, colour, label in [("simple", ":", "tab:orange", "placeholder"),
+                                       ("straight", "--", "tab:green", "straight segments + docking"),
+                                       ("lqr", "-", "tab:blue", "spline route + docking")]:
         for i, m in enumerate(res3[name]):
-            a.plot(m["true"][:, 0], m["true"][:, 1], style, lw=1.2,
-                   color="tab:orange" if name == "simple" else "tab:blue",
-                   label=("placeholder" if name == "simple" else "LQR + docking") if i == 0 else None)
+            a.plot(m["true"][:, 0], m["true"][:, 1], style, lw=1.2, color=colour, label=label if i == 0 else None)
     pts = np.array([cfg.START_POSE[:2]] + list(cfg.WAYPOINTS))
-    a.plot(pts[:, 0], pts[:, 1], "kx--", lw=0.8, label="path")
+    a.plot(pts[:, 0], pts[:, 1], "kx", label="waypoints")
+    spline = ctl.MissionController().path.xy
+    a.plot(spline[:, 0], spline[:, 1], "k-", lw=0.6, alpha=0.6, label="planned spline")
+    for _, kind, c, size, _ in cfg.OBSTACLES:
+        a.add_patch(plt.Circle(c, size, color="0.7") if kind == "cylinder"
+                    else plt.Rectangle(np.array(c) - size, *(2 * np.array(size)), color="0.7"))
     a.plot(*main.docked_pose()[:2], "r*", ms=12, label="docked pose")
     a.set_aspect("equal"); a.legend(fontsize=8); a.set_title("Part 3: true paths, every trial")
 
@@ -203,11 +228,12 @@ def cli():
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
+    ok0 = part0()
     ok1 = part1()
     rows2 = part2()
     ok3, res3 = part3(args.trials)
     rows4 = part4()
-    print(f'\ncontrol test: {"PASS" if ok1 and ok3 else "FAIL"}')
+    print(f'\ncontrol test: {"PASS" if ok0 and ok1 and ok3 else "FAIL"}')
     if not args.no_plot:
         plot(rows2, res3, rows4)
 

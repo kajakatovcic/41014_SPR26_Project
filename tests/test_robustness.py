@@ -34,35 +34,55 @@ def _odometry(rng, scale, slip):
     return (rng.uniform(-scale, scale, 2), slip)
 
 
-# name -> (description, function(rng) -> keyword arguments for main.run)
+def _force(rng):
+    return rng.choice([-1, 1]) * rng.uniform(15, 20)
+
+
+def _obstacle_on_route(rng, controller):
+    """An unmapped cylinder on the controller's own planned path, 15-22 % of the way along (the first leg, which has
+    open floor beside it), up to 5 cm either side of it. Further along, the route threads the gap between the
+    yellow and green cylinders, where an obstacle leaves no room for a local detour (0.52 m of free space for a
+    0.5 m wide robot that keeps 2 cm clearance): getting past there needs global replanning, which this controller
+    does not do."""
+    from src.control.control import MissionController
+    path = MissionController(smooth=(controller != "straight")).path
+    i = int(np.searchsorted(path.s, rng.uniform(0.15, 0.22) * path.s[-1]))
+    th = path.th[i]
+    c = path.xy[i] + rng.uniform(-0.05, 0.05) * np.array([-np.sin(th), np.cos(th)])
+    return [("cyl_grey", "cylinder", tuple(c), rng.uniform(0.08, 0.12), 0.4)]
+
+
+# name -> (description, function(rng, controller) -> keyword arguments for main.run)
+# Pushes in "push" and "combined" happen while driving the ROUTE (10-25 s; the route ends at ~30 s on the spline,
+# later on straight segments); "push_docking" pushes during docking.
 SCENARIOS = {
     "nominal": ("wheel radius errors up to +/-0.8 %, default noise",
-                lambda r: {}),
+                lambda r, c: {}),
     "start_small": ("robot placed up to 0.1m and 5deg from where its software thinks",
-                    lambda r: dict(true_start=_start_offset(r, 0.10, 5))),
+                    lambda r, c: dict(true_start=_start_offset(r, 0.10, 5))),
     "start_large": ("robot placed up to 0.3m and 30deg from where its software thinks",
-                    lambda r: dict(true_start=_start_offset(r, 0.30, 30))),
+                    lambda r, c: dict(true_start=_start_offset(r, 0.30, 30))),
     "odometry_x3": ("wheel radius errors up to +/-2.5%, 3x slip",
-                    lambda r: dict(encoder_errors=_odometry(r, 0.025, 3 * cfg.SIM_WHEEL_SLIP_SIGMA))),
+                    lambda r, c: dict(encoder_errors=_odometry(r, 0.025, 3 * cfg.SIM_WHEEL_SLIP_SIGMA))),
     "camera_noise_x4": ("camera pixel noise 8 grey levels (4x)",
-                        lambda r: dict(camera_noise=4 * cfg.CAMERA_NOISE)),
+                        lambda r, c: dict(camera_noise=4 * cfg.CAMERA_NOISE)),
     "calibration_error": ("real camera's field of view 1 deg off the calibrated one (focal length ~2% off)",
-                          lambda r: dict(camera_fovy=cfg.CAMERA_FOVY + r.choice([-1.0, 1.0]))),
+                          lambda r, c: dict(camera_fovy=cfg.CAMERA_FOVY + r.choice([-1.0, 1.0]))),
     "lidar_noise_x3": ("lidar range noise 3cm (3x)",
-                       lambda r: dict(lidar_sigma=3 * cfg.LIDAR_SIGMA)),
+                       lambda r, c: dict(lidar_sigma=3 * cfg.LIDAR_SIGMA)),
     "landmarks_missing": ("wall markers 2 and 4 missing from the room (still in the robot's map)",
-                          lambda r: dict(world_markers={i: T for i, T in cfg.MARKERS.items() if i not in (2, 4)})),
-    "push": ("shoved sideways (15-20N for 0.2sec, either side) at a random time in 10-40sec",
-             lambda r: dict(push_at=(r.uniform(10, 40), r.choice([-1, 1]) * r.uniform(15, 20)))),
-    "unexpected_obstacle": ("a cylinder (r 8-12cm) not in the map, on the route between waypoints 1 and 2",
-                            lambda r: dict(extra_obstacles=[("cyl_grey", "cylinder",
-                                                             (1.2 + r.uniform(-0.05, 0.05), r.uniform(-1.0, -0.2)),
-                                                             r.uniform(0.08, 0.12), 0.4)])),
-    "combined": ("start up to 0.1m / 5deg off + 3x odometry errors + 2x camera noise + a push",
-                 lambda r: dict(true_start=_start_offset(r, 0.10, 5),
-                                encoder_errors=_odometry(r, 0.025, 3 * cfg.SIM_WHEEL_SLIP_SIGMA),
-                                camera_noise=2 * cfg.CAMERA_NOISE,
-                                push_at=(r.uniform(10, 40), r.choice([-1, 1]) * r.uniform(15, 20)))),
+                          lambda r, c: dict(world_markers={i: T for i, T in cfg.MARKERS.items() if i not in (2, 4)})),
+    "push": ("shoved sideways (15-20N for 0.2sec, either side) at a random time in 10-25sec, on the route",
+             lambda r, c: dict(push_at=(r.uniform(10, 25), _force(r)))),
+    "push_docking": ("the same shove 2-5sec after visual docking starts",
+                     lambda r, c: dict(push_at=("dock", r.uniform(2, 5), _force(r)))),
+    "unexpected_obstacle": ("a cylinder (r 8-12cm) not in the map, on the controller's own planned route",
+                            lambda r, c: dict(extra_obstacles=_obstacle_on_route(r, c))),
+    "combined": ("start up to 0.1m / 5deg off + 3x odometry errors + 2x camera noise + a push on the route",
+                 lambda r, c: dict(true_start=_start_offset(r, 0.10, 5),
+                                   encoder_errors=_odometry(r, 0.025, 3 * cfg.SIM_WHEEL_SLIP_SIGMA),
+                                   camera_noise=2 * cfg.CAMERA_NOISE,
+                                   push_at=(r.uniform(10, 25), _force(r)))),
 }
 
 
@@ -78,6 +98,9 @@ def diagnose(m):
         if m["final_mode"] == "dock":
             return "docking did not converge (perception/docking law)"
         return f"timeout in {m['final_mode']} mode"
+    if m["pushed_while_docking"]:
+        return ("pushed while docking: the docking law cannot remove a sideways offset, and one marker cannot "
+                "observe it (controller + sensing layout)")
     if m["predock_ekf_err"] > 0.03:
         return f"docked off target: EKF {1000 * m['predock_ekf_err']:.0f}mm off at the pre-dock pose (estimator)"
     return "docked off target with a good estimate at pre-dock (perception/docking law)"
@@ -85,19 +108,19 @@ def diagnose(m):
 
 def trial(args):
     """One mission- returns plain metrics (runs in a worker process)"""
-    scenario, i, seed = args
+    scenario, i, seed, controller = args
     rng = np.random.default_rng(seed)
-    kwargs = SCENARIOS[scenario][1](rng)
+    kwargs = SCENARIOS[scenario][1](rng, controller)
     kwargs.setdefault("encoder_errors", _odometry(rng, 0.008, cfg.SIM_WHEEL_SLIP_SIGMA))
     t0 = time.time()
-    log, c = main.run(duration=TIME_LIMIT, seed=seed, **kwargs)
+    log, c = main.run(duration=TIME_LIMIT, seed=seed, controller=controller, **kwargs)
     a = log.arrays()
     e = a["est"] - a["true"]
     e[:, 2] = model.wrap(e[:, 2])
     e_pos = np.linalg.norm(e[:, :2], axis=1)
     nees = np.array([ei @ np.linalg.solve(Pi, ei) for ei, Pi in zip(e, a["P"])])
     tracking = a["mode"] == "track"
-    path = main.path_errors(a["true"][tracking, :2]) if tracking.any() else np.array([np.nan])
+    path = main.path_errors(a["true"][tracking, :2], log.ref_path) if tracking.any() else np.array([np.nan])
     dock_start = np.flatnonzero(a["mode"] == "dock")
     dist, lat, hd = main.docking_errors(a["true"][-1])
     m = dict(scenario=scenario, trial=i, seed=seed, docked=bool(c.done), time=float(a["t"][-1]),
@@ -108,6 +131,9 @@ def trial(args):
              rejected=int(log.ekf_rejected), recoveries=int(log.ekf_recoveries), detours=int(log.detours),
              collisions=sorted(log.collisions), final_mode=c.mode, blocked_end=bool(a["blocked"][-1]),
              wall_time=time.time() - t0)
+    push = kwargs.get("push_at")
+    m["pushed_while_docking"] = bool(push is not None and len(dock_start) and
+                                     (push[0] == "dock" or push[0] >= a["t"][dock_start[0]]))
     m["success"] = (m["docked"] and not m["collisions"] and abs(dist) < SUCCESS["distance"]
                     and abs(lat) < SUCCESS["lateral"] and abs(hd) < SUCCESS["heading"])
     m["cause"] = "" if m["success"] else diagnose(m)
@@ -177,12 +203,15 @@ def cli():
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     parser.add_argument("--scenarios", nargs="*", default=list(SCENARIOS), choices=list(SCENARIOS))
+    parser.add_argument("--controller", choices=["lqr", "straight"], default="lqr",
+                        help="lqr = MissionController on the spline route; straight = the same on straight segments")
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
     for n in args.scenarios:
         print(f"{n:>19}: {SCENARIOS[n][0]}")
-    jobs = [(n, i, 1000 * k + i) for k, n in enumerate(SCENARIOS) if n in args.scenarios for i in range(args.trials)]
+    jobs = [(n, i, 1000 * k + i, args.controller)
+            for k, n in enumerate(SCENARIOS) if n in args.scenarios for i in range(args.trials)]
     print(f"\n{len(jobs)} missions on {args.workers} worker processes...")
     t0 = time.time()
     with ProcessPoolExecutor(args.workers) as pool:

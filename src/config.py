@@ -120,11 +120,13 @@ OBSTACLES = [   # name, kind, centre (x, y), size (box half sizes or cylinder ra
     ("cyl_yellow", "cylinder", (-0.7, -0.3), 0.08, 0.4),
 ]
 
-# MISSION: start pose and waypoints. Routed so the robot (ROBOT_RADIUS) clears every obstacle and wall by >= 0.14m.
-# The last waypoint is the pre-dock pose, on the dock marker's normal with the camera ~0.6 m from the marker, where
-# the robot turns to face the station and switches to visual docking.
+# MISSION: start pose and waypoints. Route is designed for a smooth spline through the middle of theroom- the 
+# spline keeps >=8.8cm beyond the robot's radius from every obstacle and >=20cm from the walls 
+# (tests/test_control.py part 0). It ends atthe pre-dock pose on the dock marker's normal with the camera ~0.6m
+# from the marker, arriving already facing the dock. The robot then switches to visual docking.
+# The original straight segment route only cleared an obstacle by 0.9cm when splined.
 START_POSE = (-1.5, -1.5, 0.0) # x, y [m], theta [rad]: the estimator's prior; the robot is placed here
-WAYPOINTS = [(1.2, -1.45), (1.2, 0.2), (1.1, 1.0)]
+WAYPOINTS = [(-0.6, -1.3), (-0.1, -0.7), (-0.05, 0.2), (0.1, 0.85), (0.5, 1.0), (1.0, 1.0), (1.1, 1.0)]
 WAYPOINT_TOL = 0.15 # m, switch to the next waypoint inside this distance (placeholder WaypointFollower)
 GOAL_TOL = 0.05 # m, the last waypoint counts as reached inside this distance (placeholder WaypointFollower)
 

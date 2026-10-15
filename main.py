@@ -66,7 +66,8 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
         lidar_sigma      lidar range noise [m]
         world_markers    the markers actually in the room (the robot's map keeps all of cfg.MARKERS)
         extra_obstacles  obstacles the route does not know about (cfg.OBSTACLES format)
-        push_at          (t [s], sideways force [N]): a 0.2sec shove that the encoders do not see
+        push_at          (t [s], sideways force [N]): a 0.2sec shove that the encoders do not see; or
+                         ("dock", delay [s], force [N]): the same, delay seconds after docking starts
     """
     rng = np.random.default_rng(seed)
     mj_model = sim.build_world(camera_fovy=camera_fovy, markers=world_markers, extra_obstacles=extra_obstacles)
@@ -81,13 +82,15 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
     odometry = EncoderOdometry(encoders.read(data, rng))
     estimator = EKF(start) if estimator == "ekf" else DeadReckoning(start)
     dead_reckoning = DeadReckoning(start)
-    controller = MissionController(waypoints, start) if controller == "lqr" else WaypointFollower(waypoints)
+    controller = {"lqr": lambda: MissionController(waypoints, start),
+                  "straight": lambda: MissionController(waypoints, start, smooth=False),
+                  "simple": lambda: WaypointFollower(waypoints)}[controller]()
 
     dt = cfg.CONTROL_DT
     n_sub = int(round(dt / mj_model.opt.timestep))
     camera_every = int(round(1 / cfg.CAMERA_RATE / dt))
     lidar_every = int(round(1 / cfg.LIDAR_RATE / dt))
-    log, scan_points, t_done = Log(), None, None
+    log, scan_points, t_done, t_dock = Log(), None, None, None
 
     view = mujoco.viewer.launch_passive(mj_model, data) if viewer else None
     wall_start = time.time()
@@ -121,10 +124,17 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
         log.blocked.append(controller.blocked); log.obs.append(observations)
 
         # Advance the simulation one control period (disturbance and collision check: world side, evaluation only)
-        if push_at is not None and t <= push_at[0] < t + dt:
-            sim.push(mj_model, data, push_at[1])
-        if push_at is not None and t <= push_at[0] + sim.PUSH_DURATION < t + dt:
-            sim.push_end(mj_model, data)
+        if push_at is not None:
+            if push_at[0] == "dock": # ("dock", delay, force): relative to docking start
+                if controller.mode == "dock" and t_dock is None:
+                    t_dock = t
+                t_push = None if t_dock is None else t_dock + push_at[1]
+            else:
+                t_push = push_at[0]
+            if t_push is not None and t <= t_push < t + dt:
+                sim.push(mj_model, data, push_at[-1])
+            if t_push is not None and t <= t_push + sim.PUSH_DURATION < t + dt:
+                sim.push_end(mj_model, data)
         for _ in range(n_sub):
             mujoco.mj_step(mj_model, data)
         log.collisions |= sim.robot_collisions(mj_model, data)
@@ -145,6 +155,8 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
     log.ekf_nis = getattr(estimator, "nis", [])
     log.detours = getattr(controller, "detours", 0)
     log.ekf_recoveries = len(getattr(estimator, "recoveries", []))
+    log.ref_path = (controller.reference_path() if hasattr(controller, "reference_path")
+                    else np.array([start[:2]] + list(waypoints)))
     return log, controller
 
 
@@ -170,9 +182,10 @@ def docking_errors(x_true):
     return -e[0], e[1], e[2]
 
 
-def path_errors(xy, start=cfg.START_POSE, waypoints=cfg.WAYPOINTS):
-    """Distance of each point from the waypoint path (polyline), evaluation only."""
-    pts = [np.array(start[:2])] + [np.array(w) for w in waypoints]
+def path_errors(xy, path=None):
+    """Distance of each point from a planned path given as a polyline (N x 2): the controller's own reference
+    (log.ref_path) or by default the waypoint route in src/config.py. FOr evaluation only."""
+    pts = [np.array(cfg.START_POSE[:2])] + [np.array(w) for w in cfg.WAYPOINTS] if path is None else list(path)
     d = np.full(len(xy), np.inf)
     for a, b in zip(pts[:-1], pts[1:]):
         ab = b - a
@@ -188,8 +201,8 @@ def summarise(log, controller, waypoints=cfg.WAYPOINTS):
     print(f"run time {a['t'][-1]:.1f} s, {status} (according to the robot)")
     tracking = a["mode"] == "track"
     if tracking.any():
-        d = path_errors(a["true"][tracking, :2])
-        print(f"true distance from the path while tracking: RMS {1000 * np.sqrt(np.mean(d ** 2)):.0f} mm, "
+        d = path_errors(a["true"][tracking, :2], log.ref_path)
+        print(f"true distance from the planned path while tracking: RMS {1000 * np.sqrt(np.mean(d ** 2)):.0f} mm, "
               f"max {1000 * d.max():.0f} mm")
     if isinstance(controller, MissionController):
         dist, lat, hd = docking_errors(a["true"][-1])
@@ -272,8 +285,9 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--estimator", choices=["ekf", "dr"], default="ekf",
                         help="which estimator drives the controller (dr = dead reckoning)")
-    parser.add_argument("--controller", choices=["lqr", "simple"], default="lqr",
-                        help="lqr = LQR tracking + docking; simple = the Week 8 C.4 placeholder")
+    parser.add_argument("--controller", choices=["lqr", "straight", "simple"], default="lqr",
+                        help="lqr = LQR path following on the spline route + docking; straight = the same on "
+                             "straight segments (turning on the spot at corners); simple = the Week 8 C.4 placeholder")
     parser.add_argument("--viewer", action="store_true", help="show the MuJoCo viewer, in real time")
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()

@@ -22,7 +22,8 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | `src/perception/` | LiDAR processing (obstacles, walls) + ArUco range-and-bearing measurements with their covariance |
 | `src/estimation/` | EKF: encoder odometry prediction, camera range-and-bearing/pose correction |
 | `src/control/` | State-space model and the state-feedback/LQR trajectory tracker |
-| `tests/` | Evaluation of each module against ground truth (`test_calibration.py`, `test_perception.py`, `test_model.py`) |
+| `tests/` | Evaluation of each module against ground truth (`test_calibration.py`, `test_perception.py`, `test_model.py`, `test_estimation.py`, `test_control.py`, `test_robustness.py`) |
+| `findings/` | Test outputs, figures and written findings per marking criterion (see [findings/README.md](findings/README.md)) |
 | `setup_tests/` | Scripts to check the environment, MuJoCo and the TurtleBot3 sensors (see [setup_tests/README.md](setup_tests/README.md)) |
 | `robotis_mujoco_menagerie/` | ROBOTIS MuJoCo models (git submodule), TurtleBot3 in `robotis_tb3/` |
 
@@ -128,36 +129,51 @@ python tests/test_estimation.py
 ## Control
 `src/control/control.py` - `MissionController`, runs on the estimated pose in three modes:
 
-- **Track:** LQR on the cross-track/heading error model (Weeks 5 D, 8 B), `ct.dlqr` at the control period with Q
-  and R from Bryson's rule (Week 6 A.5 - 50mm, 10°, 0.5rad/s), gain-scheduled on speed. It follows the straight
-  segments between waypoints and stops for lidar obstacles in its path.
-- **Turn:** at corners and whenever the heading error is beyond 30° (outside the linear model), it turns on the
-  spot with the Lyapunov heading law ω = −k e_θ (Week 6 B.6).
-- **Dock:** at the pre-dock pose it turns to face the station, then runs the Week 9 law on the dock marker:
-  `v = λv (z_M − d*)`, `ω = −λω atan2(x_M, z_M)`, until the camera is `DOCK_DISTANCE` = 0.25m from the marker.
+- **Track:** LQR path following on the cross-track/heading error model (Weeks 5 D, 8 B). Gains come from
+  `ct.dlqr` at the control period, with Q and R from Bryson's rule (Week 6 A.5: 50 mm, 10°, 0.5 rad/s),
+  gain-scheduled on speed.
+  - The path is a smooth cubic spline through the route, arriving at the pre-dock pose already facing the dock.
+    A curvature feedforward `ω_r = v·κ` lets it drive the curves instead of only correcting.
+  - The speed drops where the curvature ahead is high.
+  - It stops for lidar obstacles in its path, and plans a detour if the path stays blocked for 1 s.
+- **Turn:** at the start, at the corners of straight detour legs, before docking, and whenever the heading error
+  is beyond 30° (outside the linear model), it turns on the spot with the Lyapunov heading law ω = −k e_θ
+  (Week 6 B.6).
+- **Dock:** at the pre-dock pose it runs the Week 9 law on the dock marker, `v = λv (z_M − d*)` and
+  `ω = −λω atan2(x_M, z_M)`, until the camera is `DOCK_DISTANCE` = 0.25m from the marker.
 
-Evaluate the design, the trade-off curve, missions against the placeholder, and docking from offset starts
-(~5min):
+**Merged contributions from `Anthony_Branch`:**
+
+- The spline geometry and curvature feedforward (`Trajectory` in `src/control/trajectory.py`).
+- The route in `src/config.py` `WAYPOINTS` (his `ROUTE`, ending at the pre-dock pose).
+- The route clearance check (`mission.clearance`, Part 0 of the control test).
+
+`MissionController(smooth=False)`, or `python main.py --controller straight`, gives the earlier behaviour for
+comparison: straight segments, turning on the spot at each corner.
+
+To evaluate the route clearance, the design, the trade-off curve, missions (spline vs straight vs the placeholder) and docking from offset starts (~6min):
 ```
 python tests/test_control.py
 ```
 
 ## Robustness
-`tests/test_robustness.py` runs the whole mission (perception → EKF → LQR → docking) many times under 11 scenarios
+`tests/test_robustness.py` runs the whole mission (perception → EKF → LQR → docking) many times under 12 scenarios
 that change the world but NOT the robot software: 
 
+- nominal
 - wrong start pose (small, large)
 - 3x odometry errors
 - 4x camera noise
 - a camera calibration error
 - 3x lidar noise
 - missing landmarks
-- a sideways shove
+- a sideways shove while driving the route, and one while docking
 - an unexpected obstacle on the route
 - a combination of the above
 
 It scores every trial against ground truth (success = docked within 30mm/5° with no collision) and gives each
-failure a cause. Missions run in parallel worker processes (110 missions take ~9min on 16 cores):
+failure a cause. Missions run in parallel worker processes (120 missions take ~10min on 16 cores). 
+`--controller straight` runs the earlier straight-segment controller for comparison:
 ```
 python tests/test_robustness.py --trials 10
 python tests/test_robustness.py --trials 3 --scenarios push unexpected_obstacle    # a subset
