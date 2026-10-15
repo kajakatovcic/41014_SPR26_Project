@@ -22,11 +22,16 @@ def to_wheel_speeds(v, w): # angular velocities of left/right wheels in rad/s
 
 class Trajectory:
 
-    def __init__(self, waypoints, v_ref=0.15):
+    def __init__(self, waypoints, v_ref=0.15, start_heading=None, end_heading=None):
         waypoint = np.asanyarray(waypoints, float)
         segment = np.hypot(*np.diff(waypoint, axis=0).T)
         sum = np.concatenate([[0], np.cumsum(segment)])
-        self.spline = CubicSpline(sum, waypoint, bc_type="natural")
+        bc = "natural"
+        if start_heading is not None or end_heading is not None:
+            def end(h):
+                return (2, np.zeros(2)) if h is None else (1, np.array([np.cos(h), np.sin(h)]))
+            bc = (end(start_heading), end(end_heading))
+        self.spline = CubicSpline(sum, waypoint, bc_type=bc)
         self.length, self.v_ref = sum[-1], v_ref
         self.duration = self.length / v_ref
 
