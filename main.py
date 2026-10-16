@@ -9,8 +9,8 @@ Estimator: the EKF (needed for criterion C) drives the controller. Dead reckonin
 comparison only. Controller (criterion D): MissionController, LQR path tracking then visual docking, or the
 WaypointFollower placeholder as a baseline.
 
-Usage: python main.py [--duration 120] [--seed 0] [--estimator ekf|dr] [--controller lqr|simple] [--viewer]
-                      [--no-plot]
+Usage: python main.py [--duration 120] [--seed 0] [--estimator ekf|dr] [--controller lqr|straight|simple]
+                      [--viewer] [--record [PATH]] [--no-plot]
 """
 import argparse
 import time
@@ -26,6 +26,7 @@ from src.control import model
 from src.control.control import MissionController, WaypointFollower
 from src.estimation.estimation import EKF, DeadReckoning, EncoderOdometry
 from src.perception import perception as per
+from src.simulation import video
 from src.simulation import world as sim
 
 
@@ -57,8 +58,11 @@ class Log:
 def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cfg.WAYPOINTS, estimator="ekf",
         controller="lqr", true_start=None, encoder_errors=None, camera_noise=cfg.CAMERA_NOISE,
         camera_fovy=cfg.CAMERA_FOVY, lidar_sigma=cfg.LIDAR_SIGMA, world_markers=None, extra_obstacles=(),
-        push_at=None):
-    """One mission. The keyword arguments after controller change the WORLD (never the robot's software) for the
+        push_at=None, record=None):
+    """One mission. With viewer=True the robot's camera feed is shown live in its own window next to the viewer;
+    record = a path saves an MP4 of an overview of the room beside the camera feed (src/simulation/video.py).
+
+    The keyword arguments from true_start on change the WORLD (never the robot's software) for the
     robustness trials:
         true_start       the robot is placed here instead of at the start pose its software assumes
         encoder_errors   (scale_error, slip_sigma) for the simulated odometry
@@ -93,6 +97,11 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
     log, scan_points, t_done, t_dock = Log(), None, None, None
 
     view = mujoco.viewer.launch_passive(mj_model, data) if viewer else None
+    cam_window = None
+    if view is not None:
+        video.setup_viewer(view)
+        cam_window = video.CameraWindow() # the robot's camera, live, in its own window
+    recorder = video.Recorder(record, mj_model) if record else None
     wall_start = time.time()
     t0 = data.time
     for k in range(int(round(duration / dt))):
@@ -102,9 +111,10 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
         u_odo = odometry.update(encoders.read(data, rng), dt) # motion over the last period
         estimator.predict(u_odo, dt)
         dead_reckoning.predict(u_odo, dt)
-        observations = []
+        observations, frame = [], None
         if k % camera_every == 0:
-            observations = per.detect_markers(camera.render(data, rng))
+            frame = camera.render(data, rng)
+            observations = per.detect_markers(frame)
             estimator.update(observations)
             log.markers += [(t, o.id, o.z) for o in observations]
         if k % lidar_every == 0:
@@ -115,6 +125,14 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
         # Control on the estimate only
         v, w = controller.command(estimator.x.copy(), scan_points, observations, t)
         data.ctrl[:] = model.unicycle_to_wheels(v, w)
+
+        # Show / record the camera frame the robot just used (demonstration only)
+        if frame is not None and (cam_window is not None or recorder is not None):
+            shown = video.annotate(frame, observations, t, controller.mode)
+            if cam_window is not None:
+                cam_window.show(shown)
+            if recorder is not None:
+                recorder.write(data, shown, t, controller.mode)
 
         # Log (ground truth for EVALUATION only)
         log.t.append(t); log.true.append(sim.true_pose(mj_model, data)); log.est.append(estimator.x.copy())
@@ -149,6 +167,11 @@ def run(duration=120.0, seed=0, viewer=False, start=cfg.START_POSE, waypoints=cf
                 break
 
     camera.close()
+    if recorder is not None:
+        recorder.close()
+        print(f"video: {recorder.frames} frames ({recorder.frames / cfg.CAMERA_RATE:.1f} s) -> {recorder.path}")
+    if cam_window is not None:
+        cam_window.close()
     if view is not None:
         view.close()
     log.ekf_rejected = getattr(estimator, "rejected", 0)
@@ -288,12 +311,16 @@ def main():
     parser.add_argument("--controller", choices=["lqr", "straight", "simple"], default="lqr",
                         help="lqr = LQR path following on the spline route + docking; straight = the same on "
                              "straight segments (turning on the spot at corners); simple = the Week 8 C.4 placeholder")
-    parser.add_argument("--viewer", action="store_true", help="show the MuJoCo viewer, in real time")
+    parser.add_argument("--viewer", action="store_true",
+                        help="show the MuJoCo viewer in real time, and the robot's camera feed in its own window")
+    parser.add_argument("--record", nargs="?", const="videos/mission.mp4", default=None, metavar="PATH",
+                        help="save an MP4 of an overview of the room beside the camera feed (default "
+                             "videos/mission.mp4)")
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
     log, controller = run(args.duration, args.seed, args.viewer, estimator=args.estimator,
-                          controller=args.controller)
+                          controller=args.controller, record=args.record)
     summarise(log, controller)
     if not args.no_plot:
         plot(log)

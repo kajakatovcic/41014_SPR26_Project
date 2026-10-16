@@ -107,8 +107,14 @@ the lidar at 5Hz. The estimator and controller only receive sensor data and the 
 for **EVALUATION ONLY**.
 ```
 python main.py              # prints a summary and shows the map and estimation-error plots (headless)
-python main.py --viewer     # watch it in the MuJoCo viewer in real time
+python main.py --viewer     # watch it in the MuJoCo viewer in real time + the robot's camera in its own window
+python main.py --record     # save a video (overview + camera feed) to videos/mission.mp4 (or --record PATH)
 ```
+The MuJoCo viewer opens on an overview of the room with the lidar rays shown. The "Robot camera" window streams
+the robot's own view: the same noisy frames perception receives, with each detected marker outlined and labelled
+with its id, range and bearing, plus the controller mode (`src/simulation/video.py`; for demonstration only, no
+ground truth is drawn). `--viewer --record` does both. The video plays in real time at the camera's 10 frames per
+second.
 The EKF drives the controller (to use dead reckoning instead: `--estimator dr`). The simulated encoders have
 realistic odometry errors (`SIM_WHEEL_SCALE_ERROR`, `SIM_WHEEL_SLIP_SIGMA` in `src/config.py`) which are unknown to the robot's software. The mission controller (LQR tracking, then docking) drives the robot. `--controller simple` uses the Week 8 C.4 placeholder instead as a baseline.
 
