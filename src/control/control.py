@@ -10,7 +10,7 @@ def wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 def saturate(v, w, v_wheel_max=V_MAX, track=WHEEL_TRACK):
-    peak = abs(v) + abs(w) * track / 2 # linear sped of the fastest wheel
+    peak = abs(v) + abs(w) * track / 2 # linear speed of the fastest wheel
     if peak > v_wheel_max:
         s = v_wheel_max / peak
         v, w = v * s, w * s
