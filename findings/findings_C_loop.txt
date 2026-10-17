@@ -1,0 +1,263 @@
+FINDINGS: END-TO-END LOOP AND ESTIMATION (CRITERION C) - ROUTE MISSION
+TurtleBot3 Waffle Pi, MuJoCo, Track A
+This file is the ROUTE mission (known map and start pose; now main.py --mission route, the baseline). The default
+explore mission (no map, localised from one marker) is in findings_explore.txt. The route mission's commands below
+now need --mission route (tests/test_estimation.py --mission route); its numbers are unchanged.
+Raw notes, to be formatted for the project page / report. Companion to findings_A_B.txt.
+
+Where the numbers come from (raw output in outputs/, figures in figures/):
+  python main.py                        one mission, EKF + LQR + docking (seed 0)        outputs/main_lqr.txt
+  python main.py --estimator dr         the same mission steered by dead reckoning        outputs/main_dr.txt
+  python tests/test_estimation.py       EKF over 5 missions (seeds 100-104), random       outputs/estimation.txt
+                                        odometry errors; consistency; tuning sweeps
+Sections 1-4 are the FINAL system (merged spline LQR controller, Anthony Fava's route, findings_D) and are the
+numbers to quote. Section 5 is the tuning story: it was measured on the earlier mission (placeholder controller,
+old waypoints) while the EKF was built and tuned, and is kept for the report's narrative, not as final numbers.
+Its replay experiments (5.3) were one-off and are not reproduced by a test script.
+
+
+====================================================================================================
+1. END-TO-END LOOP (main.py)
+====================================================================================================
+
+1.1 Structure
+  simulation -> sensor drivers -> perception -> estimator -> controller -> unicycle_to_wheels() -> MuJoCo
+- Each control period (CONTROL_DT = 0.05 s, 20 Hz):
+    1. read the encoders, turn them into measured (v, omega), predict the estimate
+    2. every 2nd period (camera 10 Hz): render, detect ArUco markers, correct the estimate
+    3. every 4th period (lidar 5 Hz): scan -> process_scan (walls, obstacles)
+    4. the controller computes (v, omega) from the ESTIMATE, the latest lidar points and this frame's markers
+    5. (v, omega) -> compensated wheel commands -> step MuJoCo 25 x 2 ms
+- Ground truth isolation (the brief's constraint, enforced by design):
+    - the controller is only ever passed estimator.x and sensor data;
+    - the estimator starts from the configured START_POSE (its prior), not from the simulator;
+    - ground truth goes only into the Log, used for the printed summary, the plots and the test scoring.
+- Estimator interface shared by all estimators: predict(u, dt), update(observations), x, P. Dead reckoning runs
+  alongside the EKF on the same odometry, for comparison only.
+- The loop records the raw sensor stream (odometry per step, marker observations per frame), so filter settings
+  can be replayed offline without re-running the simulation (used by test_estimation.py Part 3).
+- main.run() takes keyword arguments that change the WORLD only (start offset, odometry errors, camera noise and
+  calibration, lidar noise, missing markers, extra obstacles, a push) for the robustness trials (findings_E).
+
+1.2 Mission (src/config.py)
+- START_POSE (-1.5, -1.5, 0).
+- WAYPOINTS (-0.6, -1.3), (-0.1, -0.7), (-0.05, 0.2), (0.1, 0.85), (0.5, 1.0), (1.0, 1.0), (1.1, 1.0): Anthony
+  Fava's route through the middle of the room, ending at the pre-dock pose (1.1, 1.0) on the dock marker's normal
+  with the camera ~0.6 m from the marker. The controller drives a cubic spline through it (findings_D 1).
+- Clearance of the spline beyond the robot's radius (0.25 m): 8.8 cm from obstacles, 20 cm from walls; length
+  4.36 m (outputs/control.txt Part 0).
+- Then visual docking to 0.25 m camera-to-marker (findings_D 1.3).
+
+1.3 Placeholder controller (kept as the baseline; python main.py --controller simple)
+- Week 8 C.4: "point towards the next waypoint, drive and turn". omega = 1.5 x heading error,
+  v = 0.15 cos(heading error), clipped at 0, so the robot turns on the spot when facing away.
+  It slows approaching the final waypoint (v <= 0.5 x distance). No docking.
+- Lidar safety stop: v = 0 if any lidar return lies in a corridor 0.41 m wide (chassis half width 0.153 + 0.05)
+  out to 0.29 m ahead of the robot's origin (camera housing front 0.086 + 0.20).
+
+1.4 First run, before odometry errors were added (ideal encoders, earlier mission)
+- 4/4 waypoints in 38 s, 45 mm from the final waypoint, dead-reckoning error never above 9 mm.
+- Lesson: after the caster fix, the MuJoCo wheels roll without slipping, so dead reckoning was unrealistically
+  perfect and an EKF would have had nothing to correct. Hence section 2.
+
+
+====================================================================================================
+2. ODOMETRY ERROR MODEL IN THE SIMULATION (src/simulation/world.py, Encoders)
+====================================================================================================
+- The two classic error sources (Borenstein's UMBmark categories):
+    systematic: each wheel's effective radius differs from the nominal 0.033 m the software assumes (tyre wear,
+                load, manufacturing), by a different amount left and right, so the heading drifts
+    random:     slip, a random walk on each wheel angle whose variance grows with the angle turned
+- reported increment = true increment x (1 + scale_error) + N(0, slip_sigma^2 |increment|), then quantised to
+  4096 ticks/rev. Errors accumulate.
+- Defaults: SIM_WHEEL_SCALE_ERROR = (+0.8 %, -0.4 %) (left, right), SIM_WHEEL_SLIP_SIGMA = 0.02 rad/sqrt(rad).
+- test_estimation.py draws new radius errors for every trial, uniform in +/-0.8 % per wheel.
+- The robot's software never sees these values.
+
+
+====================================================================================================
+3. EKF DESIGN (src/estimation/estimation.py)
+====================================================================================================
+State x = (x, y, theta); built from the Week 7 C.3 ekf_predict / ekf_update and C.4 h_rb / H_rb.
+
+3.1 Predict
+- Exact-arc unicycle model f_uni and Jacobian F_uni (Week 7 C.4, src/control/model.py), driven by the encoder
+  odometry (v, omega) measured over the last control period.
+- Process noise (EXTENSION of Week 7, which used a constant Q_d): Q_d derived from the odometry error model.
+  Each wheel's distance ds has variance
+      (EKF_WHEEL_SCALE_SIGMA ds)^2 + EKF_WHEEL_SLIP_SIGMA^2 r |ds| + encoder quantisation,
+  with EKF_WHEEL_SCALE_SIGMA = 1 % and EKF_WHEEL_SLIP_SIGMA = 0.02 rad/sqrt(rad). It is mapped onto the pose
+  through the Jacobian of f_uni with respect to the two wheel distances (G Sigma G^T), then multiplied by
+  EKF_Q_SCALE.
+- Consequence: a stationary robot gains no uncertainty; a fast turn gains mostly heading uncertainty.
+
+3.2 Update
+- One ArUco range-and-bearing measurement at a time (sequential updates, Week 7 D.2), against the known marker
+  map (cfg.MARKERS), using the covariance perception reports for that measurement, with the range and bearing
+  variances scaled by EKF_R_SCALE.
+- Bearing innovation wrapped (Week 7 C.5).
+- EXTENSION: chi-square gate on the normalised innovation squared, NIS = nu^T S^-1 nu > 11.83 (2 dof, 99.7 %),
+  to reject outliers such as a mis-identified marker (Week 8 discussion of bad data association).
+- EXTENSION (added for criterion E, findings_E 2.1): lock-out recovery. If every marker measurement in a camera
+  frame has been rejected for 5 frames in a row (0.5 s), the filter adds diag(0.3 m, 0.3 m, 30 deg)^2 to P and
+  reprocesses the frame. It never fires in nominal missions (0 recoveries in 10/10 nominal trials).
+- Covariance symmetrised after each update.
+
+3.3 Prior: P0 = diag(0.05 m, 0.05 m, 3 deg)^2 around START_POSE.
+
+3.4 Final tuning (src/config.py)
+- EKF_Q_SCALE = 3.0
+- EKF_R_SCALE = (5.0, 1.0)   (range variance x5, bearing variance x1)
+- Reasoning in section 5.
+
+
+====================================================================================================
+4. RESULTS (FINAL SYSTEM)
+====================================================================================================
+
+4.1 Repeated missions (tests/test_estimation.py, 5 trials, seeds 100-104; outputs/estimation.txt)
+Mission: START_POSE -> spline route -> pre-dock (1.1, 1.0) -> visual docking. Every trial docked (40 s, true
+docking error 10 mm). New random wheel-radius errors each trial.
+
+Accuracy, EKF against dead reckoning on the same odometry:
+  trial   wheel radius errors   EKF RMS            EKF max    DR RMS             DR final
+  0       +0.54 %, +0.15 %      3.5 mm, 0.11 deg    8.7 mm    119 mm, 4.1 deg    199 mm, 6.3 deg
+  1       -0.34 %, -0.73 %      3.2 mm, 0.10 deg    7.9 mm     85 mm, 3.3 deg    153 mm, 5.3 deg
+  2       +0.76 %, +0.15 %      3.3 mm, 0.10 deg    9.9 mm    140 mm, 5.2 deg    237 mm, 7.7 deg
+  3       +0.46 %, +0.66 %      3.1 mm, 0.09 deg    7.5 mm     33 mm, 0.9 deg     45 mm, 0.9 deg
+  4       +0.30 %, -0.50 %      2.2 mm, 0.09 deg    7.8 mm    135 mm, 4.2 deg    219 mm, 5.8 deg
+- Mean RMS position error: EKF 3.1 mm, dead reckoning 102 mm (33x better). EKF never more than 9.9 mm off.
+- Dead-reckoning drift grows with the DIFFERENCE between the wheel errors (UMBmark): trial 3 (0.20 % difference)
+  drifts 45 mm; trials 2 and 4 (0.61 % and 0.80 %) drift 219-237 mm. (On this route the robot curves left and
+  right, so the order between trials 0, 2 and 4 also depends on where the drift builds up.)
+
+Consistency (Week 7 D.3), Q x3, R (range, bearing) x(5, 1):
+- Mean NEES 2.71 (consistent filter: 3); NEES below the 97.5 % chi-square bound (9.35) on 98 % of 3993 steps
+  (expect 97.5 %).
+- 2-sigma coverage: position 100 %, heading 99 % (expect ~95 %).
+- Mean NIS 0.50 (expect 2); 1 marker update rejected by the gate.
+- Verdict: consistent, on the conservative side (Week 7: "err high").
+- Innovation autocorrelation, same marker k camera frames apart: k=1 range +0.32 / bearing -0.06;
+  k=2 +0.20 / +0.01; k=3 +0.15 / +0.04. Range errors correlated, bearing errors not: the basis for R (5, 1).
+
+Tuning sweeps on the final system (Week 7 D.4, recorded missions replayed):
+Odometry noise, R (range, bearing) x(5, 1):
+    Q scale   RMS pos    RMS heading   NEES     cov pos   cov heading   NIS    rejected
+    0.1       185.9 mm   8.52 deg      427.97   43 %      40 %          2.86   537
+    0.3        18.1 mm   0.78 deg       11.33   57 %      60 %          2.12   106
+    1           3.8 mm   0.12 deg        5.18   90 %      89 %          1.04     3
+    3           3.1 mm   0.10 deg        2.71   100 %     99 %          0.50     1
+    10          2.7 mm   0.09 deg        1.77   100 %     100 %         0.25     0
+Camera noise, Q x3:
+    R (range, bearing)   RMS pos   RMS heading   NEES   cov pos   cov heading   NIS    rejected
+    1, 1                 2.5 mm    0.08 deg      3.41   98 %      97 %          0.86   1
+    3, 1                 2.8 mm    0.09 deg      2.80   100 %     99 %          0.56   1
+    5, 1                 3.1 mm    0.10 deg      2.71   100 %     99 %          0.50   1
+    10, 1                3.7 mm    0.11 deg      2.79   100 %     99 %          0.45   1
+    3, 3                 2.6 mm    0.09 deg      1.62   100 %     100 %         0.48   0
+    5, 5                 2.8 mm    0.09 deg      1.25   100 %     100 %         0.38   0
+- Q x1 is still overconfident (NEES 5.18); Q x3 is consistent (2.71). Under-inflating Q is catastrophic: 0.1x
+  gives 186 mm RMS and 537 good measurements rejected by the gate (a too-small P makes them look like outliers).
+- On this route R x(1, 1) is already close to consistent (NEES 3.41) and slightly more accurate (2.5 mm), and
+  x(3, 1) sits closest to NEES 3 (2.80). The x(5, 1) in use (2.71) errs high, as Week 7 recommends, and is what the
+  autocorrelation argument (5.4) supports. Accuracy differs by under 1 mm across x(1, 1)-x(10, 1).
+- Accuracy is insensitive to the tuning anywhere from Q x1 to x10 (2.7-3.8 mm); consistency is what changes.
+
+4.2 Single missions (seed 0, default odometry errors (+0.8 %, -0.4 %); outputs/main_lqr.txt, main_dr.txt,
+    figures/main_lqr.png, main_dr.png)
+  steered by        result                 true docking error           estimator error                 notes
+  EKF               docked, 39.9 s         +10 mm, -0 mm, -0.0 deg      RMS 3 mm / 0.1 deg, max 5 mm,  DR alongside:
+                                                                         final 0 mm                      final 303 mm / 7.5 deg
+  dead reckoning    "docked", 42.7 s       +1 mm, +78 mm, -13.0 deg     RMS 257 mm / 9.6 deg,           path error RMS
+                                                                         final 434 mm / 14.7 deg         118 mm, max 206 mm
+- EKF run: 465 marker updates, 0 rejected by the gate, mean NIS 0.52. Detections by id: dock (0) 250, 2: 141,
+  3: 5, 4: 69 (marker 1 never seen on this route).
+- Dead-reckoning run: the docking law steers on the camera, so the robot still reaches the dock, but it arrives at
+  what it believes is the pre-dock pose with its estimate hundreds of mm off (434 mm by the end), off the dock
+  marker's normal, and docks 78 mm to the side and 13 deg skewed: a fail by the 30 mm / 5 deg
+  criterion of findings_E. The estimate is what gets the robot onto the dock marker's normal (findings_D 6).
+
+
+====================================================================================================
+5. TUNING: FROM OVERCONFIDENT TO CONSISTENT (the story for the report; EARLIER MISSION)
+====================================================================================================
+Measured on the earlier mission (placeholder controller, waypoints (1.2, -1.45), (1.2, 0.2), (1.2, 1.0),
+(1.45, 1.0), ~38 s). The final-system sweeps in 4.1 confirm the conclusions on the current mission.
+
+5.1 Starting point: Q x1, R x1 (first run of test_estimation.py)
+- Accurate (RMS 4.3 mm) but OVERCONFIDENT: mean NEES 6.71; NEES under the 97.5 % bound on only 74 % of steps;
+  2-sigma coverage position 69 %, heading 83 %; NIS 1.70; 29 updates rejected by the gate (a too-small P makes
+  good measurements look like outliers).
+- Week 7 D.4's knob, scaling Q_d, did not fix it on its own:
+    Q scale   RMS pos    mean NEES   2-sigma pos   2-sigma heading   rejected
+    0.1       32.2 mm    105.90       7 %          21 %              1218
+    0.3        5.0 mm     17.62      36 %          54 %               181
+    1          4.3 mm      6.71      69 %          83 %                29
+    3          4.3 mm      5.07      83 %          91 %                24
+    10         4.8 mm      4.55      88 %          91 %                23
+  NEES stayed above 4.5 even at 10x, while NIS (each single measurement) looked fine. That pattern points at
+  correlated measurement errors.
+
+5.2 Diagnosis
+- NEES split by state (Q x1, R x1): position 5.18 (expect 2), heading 2.02 (expect 1), so position is the main
+  problem.
+- Cause 1, Q too small: the wheel-radius error is a constant BIAS, but the noise model treats it as fresh random
+  noise each step. Over N steps without a marker the real error grows like N, the model's standard deviation only
+  like sqrt(N).
+- Cause 2, correlated camera errors: at 10 Hz the camera sees the same marker from almost the same place each
+  frame, with almost the same error (corner bias, calibration), so successive measurements are not independent
+  and the filter over-counts them.
+- Evidence: autocorrelation of the same marker's whitened innovations, k camera frames apart, on the earlier
+  mission k=1 range +0.33 / bearing -0.01, k=2 +0.22 / +0.04, k=3 +0.14 / -0.01; on the final mission (4.1)
+  +0.32 / -0.06, +0.20 / +0.01, +0.15 / +0.04. Range errors are correlated across frames; bearing errors are not.
+
+5.3 Replay experiments (one-off, recordings from the earlier settings)
+Fewer camera updates instead of inflating R:
+    Q   R   camera frames used   RMS pos   NEES    cov pos   cov heading   NIS
+    1   1   every frame           4.3 mm   6.71    69 %      83 %          1.70
+    1   1   every 5th             6.2 mm   7.95    60 %      88 %          1.85
+    3   1   every 5th             5.4 mm   3.09    92 %      98 %          1.19
+  Dropping frames alone does not fix it (cause 1 remains), and it costs accuracy.
+Inflating R on both components, grid:
+    Q   R x   RMS pos   NEES    cov pos   cov heading   NIS
+    2   2     4.4 mm    3.82    86 %      96 %          0.93
+    2   3     4.4 mm    3.05    90 %      98 %          0.74
+    2   4     4.6 mm    2.91    91 %      98 %          0.64
+    3   2     4.4 mm    3.39    92 %      98 %          0.80
+    3   3     4.4 mm    2.55    96 %      100 %         0.63
+    3   4     4.5 mm    2.35    96 %      100 %         0.53
+    4   2     4.4 mm    3.21    95 %      98 %          0.73
+    4   3     4.4 mm    2.33    97 %      100 %         0.56
+    4   4     4.5 mm    2.09    97 %      100 %         0.47
+Inflating range only, guided by the autocorrelation:
+    Q   R range   R bearing   RMS pos   NEES    cov pos   cov heading   NIS
+    3   3         3           4.4 mm    2.55    96 %      100 %         0.63
+    3   3         1           4.4 mm    3.23    95 %      96 %          0.69
+    3   5         1           4.5 mm    3.01    96 %      98 %          0.59
+    3   8         1           4.6 mm    2.64    98 %      100 %         0.51
+    3   5         1.5         4.5 mm    2.70    96 %      99 %          0.56
+    2   5         1           4.6 mm    3.50    94 %      97 %          0.72
+    4   5         1           4.5 mm    2.75    97 %      99 %          0.51
+
+5.4 Decision: Q x3, R range x5, bearing x1
+- Q x3 covers the radius bias over the blind stretches between markers.
+- Range x5 follows the correlated-measurement argument: errors correlated over ~n frames carry about 1/n of a
+  frame's information each, so R_eff ~ n R. An autocorrelation still +0.14-0.15 three frames on supports n ~ 5.
+- Bearing left alone, because its errors are independent; inflating it too made the filter more conservative
+  for nothing.
+- Accuracy is essentially unchanged by the tuning; consistency goes from NEES 6.7 to 2.7-2.9 (earlier and final
+  missions).
+
+
+====================================================================================================
+6. CAVEATS AND POSSIBLE EXTENSIONS
+====================================================================================================
+- Mean NIS ~0.5 against an expected 2: with Q x3 the predicted covariance is generous right after each
+  correction, so innovations look small. This is the price of covering the radius BIAS with white noise.
+- Principled fix (High Distinction extension): augment the state with the two wheel-radius errors and estimate
+  them (x = (x, y, theta, e_l, e_r)). Q could then return to x1, NIS should approach 2, and the filter would
+  learn the robot's calibration. Compare against the current filter on the same recordings.
+- The Q x3 tuning is for +/-0.8 % wheel errors; with +/-2.5 % (findings_E odometry_x3) the filter becomes
+  overconfident (NEES 45) and relies on the lock-out recovery.
+- Results above are for one route and one marker layout. Wrong priors, worse odometry, camera faults, missing
+  markers and pushes are tested in findings_E.

@@ -1,0 +1,3 @@
+Actuators: ['wheel_left', 'wheel_right']
+Lidar: 360 beams, 0.12-3.5 m | Camera: 640x480, fovy=48.8 deg
+t=60.0s  pos=(-1.63, -1.54)  lidar hits=293/360  min=0.34 m  camera frame=(480, 640, 3) mean=91.5

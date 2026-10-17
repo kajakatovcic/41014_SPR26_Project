@@ -1,0 +1,14 @@
+run time 45.8 s, DOCKED (according to the robot)
+true distance from the planned path while tracking: RMS 15 mm, max 53 mm
+true docking error: distance +10 mm, lateral -1 mm, heading +0.2 deg
+localised from marker 1 at t = 0.9 s (marker yaw from the wall): initial error 2 mm / 0.0 deg
+paths planned: 1 {'start': 1, 'path blocked': 0, 'off path': 0, 'corridor': 0, 'dock found': 0, 'dock abort': 0}, failed plans: 0, map restarts: 1, searches for the dock marker: 0, docking re-approaches: 0
+wall-line heading updates: 73 accepted, 0 rejected by the gate
+markers mapped on the way (error of the mapped position): 2: 5 mm, 4: 23 mm
+closest true approach beyond the robot's radius: obstacles 9.5 cm, walls 30.2 cm; collisions: none
+      estimator error: final    0 mm /  0.0 deg, RMS   13 mm /  1.3 deg, max   53 mm
+ dead reckoning error: final  344 mm / 11.2 deg, RMS  184 mm /  7.1 deg, max  344 mm
+EKF: 239 marker updates, 0 rejected by the gate, mean NIS 0.64 (2 for a consistent filter)
+marker detections: 325 {0: 166, 1: 14, 2: 126, 4: 19}
+lidar safety stops: 0 control periods
+[figure saved: main_explore.png]

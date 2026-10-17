@@ -132,17 +132,39 @@ def _add_checkerboard(spec):
                   material="checkerboard", contype=0, conaffinity=0)
 
 
-def build_world(checkerboard=False, room=True, camera_fovy=cfg.CAMERA_FOVY, markers=None, extra_obstacles=()):
-    """The Track A world. checkerboard=True adds the calibration target (see set_checkerboard). room=False leaves
-    out the walls, obstacles and markers. Open floor for driving tests.
-    From robustness testing: camera_fovy different from cfg.CAMERA_FOVY makes the real camera differ from the one
-    perception was calibrated for. Markers leaves landmarks out of the world (the robot's map still has them).
-    extra_obstacles adds obstacles the robot's route does not know about."""
+POPUP_RADIUS = 0.10 # m, the obstacle that can appear in front of the robot (see place_popup)
+
+
+def _add_popup(spec):
+    """A cylinder on a mocap body parked under the floor until place_popup() puts it in the room. Thi sis an obstacle that
+    appears while the robot drives (a person or a box moved into its way)."""
+    body = spec.worldbody.add_body(name="popup", mocap=True, pos=[0, 0, -1])
+    body.add_geom(name="popup_obstacle", type=mujoco.mjtGeom.mjGEOM_CYLINDER, size=[POPUP_RADIUS, 0.2],
+                  pos=[0, 0, 0.2], rgba=[0.55, 0.35, 0.75, 1])
+
+
+def place_popup(model, data, xy):
+    """Put the pop-up obstacle at world position xy (simulation side for robustness testing)."""
+    data.mocap_pos[model.body("popup").mocapid[0]] = [xy[0], xy[1], 0.0]
+    mujoco.mj_forward(model, data)
+
+
+def build_world(checkerboard=False, room=True, camera_fovy=cfg.CAMERA_FOVY, markers=None, extra_obstacles=(),
+                popup=False):
+    """The Track A world. checkerboard=True adds the calibration target (see set_checkerboard). room=False 
+    leaves out the walls, obstacles and markers. Open floor for driving tests.
+    Additions after robustness testing: camera_fovy different from cfg.CAMERA_FOVY make sthe real camera differ
+    from the one perception was calibrated for. Markers leaves landmarks out of the world (the robot's map 
+    still has them).
+    extra_obstacles adds obstacles that the robot's route does not know about. 
+    popup=True adds an obstacle that can be made to appear during a run (place_popup)."""
     spec = mujoco.MjSpec.from_file(str(cfg.TB3_SCENE_XML))
     _fix_caster(spec)
     _add_sensors(spec, camera_fovy)
     if room:
         _add_room(spec, markers, extra_obstacles)
+    if popup:
+        _add_popup(spec)
     if checkerboard:
         _add_checkerboard(spec)
     return spec.compile()
@@ -151,7 +173,7 @@ def build_world(checkerboard=False, room=True, camera_fovy=cfg.CAMERA_FOVY, mark
 # Sensor drivers: simulation -> noisy sensor data
 
 def read_lidar(model, data, rng, sigma=cfg.LIDAR_SIGMA):
-    """One lidar scan: ranges [m] for each beam in cfg.LIDAR_ANGLES, inf where there is no valid return."""
+    """One LiDAR scan: ranges [m] for each beam in cfg.LIDAR_ANGLES. inf where there is no valid return."""
     adr = model.sensor("lidar_0").adr[0]
     rho = data.sensordata[adr:adr + cfg.LIDAR_NUM_RAYS].copy()
     rho[rho < 0] = np.inf # rangefinder returns -1 on a miss
@@ -166,7 +188,7 @@ class Camera:
     def __init__(self, model, noise=cfg.CAMERA_NOISE):
         self.renderer = mujoco.Renderer(model, cfg.CAMERA_HEIGHT, cfg.CAMERA_WIDTH)
         self.option = mujoco.MjvOption()
-        self.option.flags[mujoco.mjtVisFlag.mjVIS_RANGEFINDER] = False # don't draw the lidar beams
+        self.option.flags[mujoco.mjtVisFlag.mjVIS_RANGEFINDER] = False # don't draw the LiDAR beams
         self.noise = noise
 
     def render(self, data, rng):
@@ -182,7 +204,7 @@ class Camera:
 
 
 def read_encoders(model, data):
-    """Left and right wheel angles [rad], quantised to the encoder resolution. Ideal wheels: no odometry error."""
+    """Left and right wheel angles [rad] quantised to the encoder resolution. Ideal wheels= no odometry error."""
     q = data.qpos[[model.joint("wheel_left").qposadr[0], model.joint("wheel_right").qposadr[0]]]
     step = 2 * np.pi / cfg.ENCODER_TICKS
     return np.round(q / step) * step

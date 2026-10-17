@@ -2,12 +2,16 @@
 # Each trial runs the full loop of main.py with the EKF driving the controller, and draws new odometry errors
 # (each wheel's radius off by up to +/-0.8%) and new sensor noise so the filter is judged across conditions it
 # was not tuned for.
+# --mission explore (default): MarkerSLAM, localised from the reference marker, errors from the moment it localises
+#                              (its estimates in {A} are converted to the world frame for scoring only), dead reckoning
+#                              from the same starting estimate
+# --mission route:             the EKF with the known map and start pose
 #   Part 1 - accuracy: EKF against dead reckoning on the same odometry and whether each mission reached its goal
 #   Part 2 - consistency (Week 7 D.3): NEES which should average n = 3 for a consistent filter, NIS (2 per marker
 #            update), 2-sigma coverage, and whether consecutive camera measurements are actually independent
 #   Part 3 - tuning (Week 7 D.4): the recorded sensor data is replayed through the EKF with the odometry noise
 #            (Q) and the camera noise (R) scaled up and down, to see what accuracy and consistency each choice gives
-# Usage: python tests/test_estimation.py [--trials 5] [--no-plot]
+# Usage: python tests/test_estimation.py [--mission explore|route] [--trials 5] [--no-plot]
 import argparse
 import sys
 from pathlib import Path
@@ -20,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import main                                           
 from src import config as cfg                               
 from src.control import model                             
-from src.estimation.estimation import EKF                    
+from src.estimation.estimation import EKF, MarkerSLAM
 
 Q_SCALES = [0.1, 0.3, 1.0, 3.0, 10.0]
 
@@ -35,17 +39,29 @@ def nees(e, P):
     return np.array([ei @ np.linalg.solve(Pi, ei) for ei, Pi in zip(e, P)])
 
 
+def localised(a):
+    """Steps with an estimate (the explore mission has none before it localises)."""
+    return ~np.isnan(a["est"][:, 0])
+
+
 def replay(log, q_scale=cfg.EKF_Q_SCALE, r_scale=cfg.EKF_R_SCALE):
-    """Run the EKF again on a mission's recorded odometry and marker observations with other noise scales."""
-    ekf = EKF(cfg.START_POSE, q_scale=q_scale, r_scale=r_scale)
+    """Run the estimator again on a mission's recorded odometry and marker observations with other noise scales.
+    Returns world-frame estimates and covariances for the steps after it localised."""
+    explore = log.mission == "explore"
+    ekf = (MarkerSLAM(q_scale=q_scale, r_scale=r_scale) if explore
+           else EKF(cfg.START_POSE, q_scale=q_scale, r_scale=r_scale))
     camera_every = int(round(1 / cfg.CAMERA_RATE / cfg.CONTROL_DT))
-    X, P = [], []
+    X, P, idx = [], [], []
     for k, (u, obs) in enumerate(zip(log.odo, log.obs)):
         ekf.predict(u, cfg.CONTROL_DT)
         if k % camera_every == 0:
+            if explore: # the lidar wall lines it had at that moment, and whether from the same step
+                ekf.walls, ekf.walls_fresh = log.walls[k]
             ekf.update(obs)
-        X.append(ekf.x.copy()); P.append(ekf.P.copy())
-    return np.array(X), np.array(P), ekf
+        if ekf.x is not None:
+            X.append(main.pose_to_world(ekf.x, log.frame_A)); P.append(main.cov_to_world(ekf.P, log.frame_A))
+            idx.append(k)
+    return np.array(X), np.array(P), ekf, np.array(idx)
 
 
 def innovation_autocorrelation(ekfs, max_lag=5):
@@ -68,12 +84,12 @@ def innovation_autocorrelation(ekfs, max_lag=5):
     return out
 
 
-def run_trials(n, seed0=100):
+def run_trials(n, mission="explore", seed0=100):
     rng = np.random.default_rng(seed0)
     trials = []
     for i in range(n):
         scale_err = rng.uniform(-0.008, 0.008, 2)
-        log, ctrl = main.run(seed=seed0 + i, encoder_errors=(scale_err, cfg.SIM_WHEEL_SLIP_SIGMA))
+        log, ctrl = main.run(seed=seed0 + i, mission=mission, encoder_errors=(scale_err, cfg.SIM_WHEEL_SLIP_SIGMA))
         trials.append((log, ctrl, scale_err))
         a = log.arrays()
         dist, lat, _ = main.docking_errors(a["true"][-1])
@@ -89,7 +105,8 @@ def part1(trials):
     rms_ekf, rms_dr, ok = [], [], True
     for i, (log, ctrl, _) in enumerate(trials):
         a = log.arrays()
-        e, d = errors(a["est"], a["true"]), errors(a["dr"], a["true"])
+        ok_k = localised(a)
+        e, d = errors(a["est"][ok_k], a["true"][ok_k]), errors(a["dr"][ok_k], a["true"][ok_k])
         ep, dp = np.linalg.norm(e[:, :2], axis=1), np.linalg.norm(d[:, :2], axis=1)
         rms_ekf.append(np.sqrt(np.mean(ep ** 2))); rms_dr.append(np.sqrt(np.mean(dp ** 2)))
         print(f"{i:>6} | {1000 * rms_ekf[-1]:>6.1f} mm {np.degrees(np.sqrt(np.mean(e[:, 2] ** 2))):>5.2f} deg "
@@ -109,9 +126,9 @@ def consistency(trials, q_scale=cfg.EKF_Q_SCALE, r_scale=cfg.EKF_R_SCALE):
     all_nees, cov_pos, cov_th, nis, rms_p, rms_t, rej = [], [], [], [], [], [], 0
     per_time, ekfs = [], []
     for log, _, _ in trials:
-        X, P, ekf = replay(log, q_scale, r_scale)
+        X, P, ekf, idx = replay(log, q_scale, r_scale)
         ekfs.append(ekf)
-        e = errors(X, np.array(log.true))
+        e = errors(X, np.array(log.true)[idx])
         n = nees(e, P)
         all_nees.append(n); per_time.append(n)
         ep = np.linalg.norm(e[:, :2], axis=1)
@@ -172,10 +189,11 @@ def plot(trials, c2, rows):
     a = ax[0, 0]
     for i, (log, _, _) in enumerate(trials):
         arr = log.arrays()
-        e, d = errors(arr["est"], arr["true"]), errors(arr["dr"], arr["true"])
-        a.plot(arr["t"], 1000 * np.linalg.norm(e[:, :2], axis=1), color="tab:blue", lw=1,
+        k = localised(arr)
+        e, d = errors(arr["est"][k], arr["true"][k]), errors(arr["dr"][k], arr["true"][k])
+        a.plot(arr["t"][k], 1000 * np.linalg.norm(e[:, :2], axis=1), color="tab:blue", lw=1,
                label="EKF" if i == 0 else None)
-        a.plot(arr["t"], 1000 * np.linalg.norm(d[:, :2], axis=1), ":", color="tab:purple", lw=1,
+        a.plot(arr["t"][k], 1000 * np.linalg.norm(d[:, :2], axis=1), ":", color="tab:purple", lw=1,
                label="dead reckoning" if i == 0 else None)
     a.set_yscale("log"); a.set_xlabel("time [s]"); a.set_ylabel("position error [mm]"); a.legend()
     a.set_title("Part 1: position error, every trial")
@@ -210,11 +228,12 @@ def plot(trials, c2, rows):
 
 def cli():
     parser = argparse.ArgumentParser(description="EKF evaluation over repeated missions")
+    parser.add_argument("--mission", choices=["explore", "route"], default="explore")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
-    trials = run_trials(args.trials)
+    trials = run_trials(args.trials, args.mission)
     ok1 = part1(trials)
     ok2, c2 = part2(trials)
     rows = part3(trials)

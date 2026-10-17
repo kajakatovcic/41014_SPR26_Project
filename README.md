@@ -20,9 +20,9 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | `src/config.py` | Shared parameters between subsystems (robot geometry, sensor mounts and frames, camera intrinsics, room and marker map) |
 | `src/simulation/` | MuJoCo world (room, obstacles, charging station, ArUco markers) and noisy sensor drivers |
 | `src/perception/` | LiDAR processing (obstacles, walls) + ArUco range-and-bearing measurements with their covariance |
-| `src/estimation/` | EKF: encoder odometry prediction, camera range-and-bearing/pose correction |
-| `src/control/` | State-space model and the state-feedback/LQR trajectory tracker |
-| `tests/` | Evaluation of each module against ground truth (`test_calibration.py`, `test_perception.py`, `test_model.py`, `test_estimation.py`, `test_control.py`, `test_robustness.py`) |
+| `src/estimation/` | EKF: encoder odometry prediction, camera range-and-bearing/pose correction. `MarkerSLAM` for the "explore" mission |
+| `src/control/` | State-space model, the LQR path-following/docking controller, the explore mission's `Navigator` and its LiDAR occupancy-grid planner |
+| `tests/` | Evaluation of each module against ground truth (`test_calibration.py`, `test_perception.py`, `test_model.py`, `test_estimation.py`, `test_control.py`, `test_navigation.py`, `test_robustness.py`) |
 | `findings/` | Test outputs, figures and written findings per marking criterion (see [findings/README.md](findings/README.md)) |
 | `setup_tests/` | Scripts to check the environment, MuJoCo and the TurtleBot3 sensors (see [setup_tests/README.md](setup_tests/README.md)) |
 | `robotis_mujoco_menagerie/` | ROBOTIS MuJoCo models (git submodule), TurtleBot3 in `robotis_tb3/` |
@@ -37,6 +37,9 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | EKF with range-and-bearing measurements | Week 7 (Part C) |
 | LQG - closing the loop on the EKF estimate | Week 8 (Parts B and C) |
 | PBVS docking to an ArUco tag | Week 9 (Part D) |
+| Localising from one marker (PnP pose + LiDAR wall line) | Weeks 3 (Part E) and 4 (Part 5), extended for hardware integration |
+| Mapping unknown markers (EKF-SLAM) | Week 7 (Part C extension), extended for hardware integration |
+| Occupancy grid + A* planning from the LiDAR | This is not covered in tutorials - extension for the explore mission |
 
 ## Setup
 1. Clone with the submodule:
@@ -101,22 +104,47 @@ python tests/test_model.py   # about 10sec
 ```
 
 ## Running the full loop
-`main.py` runs the mission in `src/config.py` (`START_POSE`, `WAYPOINTS`): simulation → sensor drivers →
-perception → estimator → controller → wheel commands. Control and estimation run at 20Hz, the camera at 10Hz and
-the lidar at 5Hz. The estimator and controller only receive sensor data and the estimate. Ground truth is logged
-for **EVALUATION ONLY**.
+`main.py` runs simulation → sensor drivers → perception → estimator → controller → wheel commands. Control and
+estimation run at 20Hz, the camera at 10Hz and the LiDAR at 5Hz. The estimator and controller only receive sensor
+data and the estimate. Ground truth is logged for **EVALUATION ONLY**.
+
+There are two missions:
+
+- **`explore` (the default) built for hardware integration:** The robot starts with no map, no route and no known start
+  pose. It knows only where the dock marker is relative to the reference marker (`REF_MARKER_ID`,
+  `DOCK_OFFSET` in `src/config.py`. This should be measured with a tape on a real robot).
+  1. **Search and localise:** It turns until it sees the reference marker, then stands still for 1 second. From the
+     marker's range and bearing (camera) and the wall it hangs on (LiDAR RANSAC line), it works out its pose. The
+     marker's frame becomes the robot's reference frame.
+  2. **Look:** It turns to where the dock marker should be and looks for it. A second known marker makes the full
+     pose observable.
+  3. **Plan and drive:** It plans to the pre-dock pose on an occupancy grid built from the LiDAR as it drives
+     (A* then the spline through the path). It replans whenever new LiDAR returns block the path ahead,
+     including obstacles that appear while it drives.
+  4. **Dock:** It docks on the dock marker (Week 9). If the dock marker is out of view at the pre-dock pose, it
+     turns to find it and replans. If it is pushed off the dock marker's normal while docking, it backs off and
+     re-approaches. Near a known marker, the LiDAR wall line behind it also gives the robot's heading, so the
+     estimate stays observable with just one marker in view.
+
+  Other markers are mapped as they are seen (EKF-SLAM, `MarkerSLAM`).
+- **`route`:** the earlier mission, kept as a baseline. Known start pose (`START_POSE`), known marker map and a fixed
+  waypoint route (`WAYPOINTS`).
+
 ```
-python main.py              # prints a summary and shows the map and estimation-error plots (headless)
-python main.py --viewer     # watch it in the MuJoCo viewer in real time + the robot's camera in its own window
-python main.py --record     # save a video (overview + camera feed) to videos/mission.mp4 (or --record PATH)
+python main.py                          # explore mission: summary + the robot's lidar map, paths and estimation errors
+python main.py --viewer                 # watch it in the MuJoCo viewer in real time + the robot's camera in its own window
+python main.py --obstacle-appears 20    # an obstacle appears in front of the robot at t = 20 s: watch it replan
+python main.py --mission route          # the fixed-route baseline
+python main.py --record                 # save a video (overview + camera feed) to videos/mission.mp4 (or --record PATH)
 ```
-The MuJoCo viewer opens on an overview of the room with the lidar rays shown. The "Robot camera" window streams
-the robot's own view: the same noisy frames perception receives, with each detected marker outlined and labelled
-with its id, range and bearing, plus the controller mode (`src/simulation/video.py`; for demonstration only, no
-ground truth is drawn). `--viewer --record` does both. The video plays in real time at the camera's 10 frames per
-second.
+The MuJoCo viewer opens on an overview of the room with the LiDAR rays shown. The "Robot camera" window streams
+the robot's own view, i.e. the same noisy frames perception receives, with each detected marker outlined and labelled
+with its id, range and bearing, plus the controller mode (`src/simulation/video.py` - for demonstration only, no
+ground truth is drawn). `--viewer --record` does both. The video plays in real time at the camera's 10FPS.
 The EKF drives the controller (to use dead reckoning instead: `--estimator dr`). The simulated encoders have
-realistic odometry errors (`SIM_WHEEL_SCALE_ERROR`, `SIM_WHEEL_SLIP_SIGMA` in `src/config.py`) which are unknown to the robot's software. The mission controller (LQR tracking, then docking) drives the robot. `--controller simple` uses the Week 8 C.4 placeholder instead as a baseline.
+realistic odometry errors (`SIM_WHEEL_SCALE_ERROR`, `SIM_WHEEL_SLIP_SIGMA` in `src/config.py`) which are unknown to
+the robot's software. `--controller straight` follows straight segments instead of splines. With
+`--mission route`, `--controller simple` uses the Week 8 C.4 placeholder as a baseline.
 
 ## Estimation
 `src/estimation/estimation.py` is an EKF on the pose (x, y, θ), built from the Week 7 C functions:
@@ -127,7 +155,15 @@ realistic odometry errors (`SIM_WHEEL_SCALE_ERROR`, `SIM_WHEEL_SLIP_SIGMA` in `s
   bearing innovation wrapped, and a chi-square gate on the innovation to reject outliers.
 - **Tuning** (`EKF_Q_SCALE`, `EKF_R_SCALE` in `src/config.py`) chosen by NEES over repeated missions (Week 7 D.3 + D.4).
 
-To evaluate it over repeated missions with random odometry errors (~2min):
+`MarkerSLAM` (explore mission) is the same filter run in the reference marker's frame. It differs from the route
+EKF in three ways:
+
+- It is initialised from the reference marker. The position comes from PnP. The marker's yaw comes from the LiDAR
+  wall line because PnP's yaw can flip (see Week 3 E, planar ambiguity).
+- It uses the dock marker at its known offset.
+- It adds other markers to its state once the dock marker has fixed the full pose (EKF-SLAM from Week 7 C).
+
+To evaluate it over repeated missions with random odometry errors (~5min; `--mission route` for the route EKF):
 ```
 python tests/test_estimation.py
 ```
@@ -162,31 +198,51 @@ To evaluate the route clearance, the design, the trade-off curve, missions (spli
 python tests/test_control.py
 ```
 
+**Explore mission** (`src/control/navigation.py` `Navigator`, `src/control/planning.py`):
+
+- `Navigator` builds on `MissionController`. It adds the search, localise, look and find modes, and it replans
+  instead of using fixed waypoints.
+- The planner keeps a log-odds occupancy grid of LiDAR returns (ray-cast free space), placed with the estimated pose.
+- A* on the grid keeps the robot's radius + 5 cm from returns, then the path is shortened to a few waypoints and
+  splined.
+- The planner is not from the tutorials. This is a minimal extension so the robot can navigate with no map.
+
+To evaluate one-marker localisation (wall-line yaw against PnP alone) and missions from random starts (~10min):
+```
+python tests/test_navigation.py
+```
+
 ## Robustness
-`tests/test_robustness.py` runs the whole mission (perception → EKF → LQR → docking) many times under 12 scenarios
-that change the world but NOT the robot software: 
+`tests/test_robustness.py` runs the whole mission many times, under scenarios that change the world but NOT the
+robot's software. It runs the explore mission by default, or the route mission with `--mission route`. There are
+13 explore scenarios:
 
 - nominal
-- wrong start pose (small, large)
+- random start in front of the reference marker
+- a random heading, so the robot must search for the marker
 - 3x odometry errors
 - 4x camera noise
 - a camera calibration error
 - 3x lidar noise
-- missing landmarks
-- a sideways shove while driving the route, and one while docking
-- an unexpected obstacle on the route
+- only the reference and dock markers in the room
+- a sideways shove while driving, and one while docking
+- an extra obstacle in the way
+- an obstacle that appears in front of the robot while it drives
 - a combination of the above
 
 It scores every trial against ground truth (success = docked within 30mm/5° with no collision) and gives each
-failure a cause. Missions run in parallel worker processes (120 missions take ~10min on 16 cores). 
-`--controller straight` runs the earlier straight-segment controller for comparison:
+failure a cause. Missions run in parallel worker processes (130 explore missions take ~12min with
+`--workers 10`; with many workers set `OMP_NUM_THREADS=1` first, or the processes' threads compete for the cores).
+`--controller straight` follows straight segments instead of splines:
 ```
 python tests/test_robustness.py --trials 10
-python tests/test_robustness.py --trials 3 --scenarios push unexpected_obstacle    # a subset
+python tests/test_robustness.py --trials 3 --scenarios push obstacle_appears    # a subset
+python tests/test_robustness.py --trials 10 --mission route                     # the route mission's scenarios
 ```
 
 While running these trials, we implemented two robustness mechanisms from our findings:
 - **EKF lock-out recovery:** When every marker measurement has been rejected for 0.5sec, the filter inflates its covariance.
 - **LiDAR detour planning:** When the path stays blocked for 1sec, the controller plans a sidestep around the obstacle.
+  In the explore mission this is replaced by replanning on the LiDAR occupancy grid.
 
 `main.run()` takes the scenario settings as keyword arguments so any of them can be run on their own.

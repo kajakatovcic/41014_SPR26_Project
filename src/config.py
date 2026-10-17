@@ -130,6 +130,34 @@ WAYPOINTS = [(-0.6, -1.3), (-0.1, -0.7), (-0.05, 0.2), (0.1, 0.85), (0.5, 1.0), 
 WAYPOINT_TOL = 0.15 # m, switch to the next waypoint inside this distance (placeholder WaypointFollower)
 GOAL_TOL = 0.05 # m, the last waypoint counts as reached inside this distance (placeholder WaypointFollower)
 
+# EXPLORE MISSION (the default for main.py --mission explore). what the robot knows before it starts and nothing else.
+# The robot has no map of the room, walls or obstacles. Only:
+#   REF_MARKER_ID  the marker it localises from at the start. Its frame {A} is the robot's reference frame i.e. origin at
+#                  the marker centre (on the floor plane), x along the marker's normal (out of its face, into the
+#                  room), y to the left of x.
+#   DOCK_OFFSET    the dock marker's pose in {A}: (x, y, direction of its normal). On hardware this is measured with a
+#                  tape between the two markers. Here it is the simulated room's value (checked against the room in
+#                  tests/test_navigation.py).
+# Other markers are mapped as they are seen (EKF-SLAM, src/estimation/estimation.py MarkerSLAM).
+REF_MARKER_ID = 1
+DOCK_OFFSET = (3.790, 1.800, np.pi)
+PREDOCK_DISTANCE = 0.75 # m, robot origin to the dock marker at the pre-dock pose (camera ~0.66m from the marker)
+# Localisation from the reference marker (Week 3 E: PnP pose of the marker -> pose of the robot in {A}). Range and
+# bearing are accurate but the marker's YAW from PnP suffers the planar pose ambiguity: measured over views 0.6-1.3m
+# and 0-45deg off the normal, it was within 1.3deg in 9 of 11 views, -5.8deg face on at 0.6m and once -61deg
+# (the mirror image about the line of sight). The marker hangs on a wall so its yaw is taken from the LiDAR's RANSAC
+# wall line through it instead (Week 4-wall angles within 0.1 eg) and from PnP only if no wall is found.
+INIT_FRAMES = 10 # camera frames (1sec) of the reference marker (robot standing still) before the EKF starts
+INIT_SIGMA_YAW = np.deg2rad(6.0) # std dev of the marker yaw from PnP - for the EKF prior
+INIT_SIGMA_YAW_WALL = np.deg2rad(1.0) # std dev of the marker yaw from the wall line (fit + marker mounting)
+# Simulation only: where the robot is placed (the robot's software does not know this) facing the reference marker
+EXPLORE_START = (-1.2, -0.8, np.pi)
+
+# LiDAR occupancy grid for planning (src/control/planning.py) in {A}
+GRID_RES = 0.05 # m per cell
+GRID_EXTENT = ((-2.0, 7.0), (-4.5, 4.5)) # m, x and y limits of the grid in {A}: room-sized, but not the room's walls
+PLAN_CLEARANCE = ROBOT_RADIUS + 0.05 # m, the planned path keeps the robot origin this far from LiDAR returns
+
 # Docking (Week 9 D3)- stop with the camera DOCK_DISTANCE in front of the dock marker, centred on it. The camera can
 # only decode the marker while its 0.2m plate fits in the 480 x image height: Z >= 0.2m x 530px / 480px = 0.22m
 DOCK_DISTANCE = 0.25 # m, camera to marker when docked

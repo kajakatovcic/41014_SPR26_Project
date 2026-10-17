@@ -208,18 +208,20 @@ def detect_markers(rgb, camera=CAMERA, side=cfg.MARKER_SIDE, T_RC=cfg.T_RC, bias
 
     Detections are checked against the known map (wk7). The id must be in it and the marker centre must be at its
     mapped height (within height_tol). The second check rejects reflections of markers in a shiny floor which appear
-    below the flow and can decode as a valid id - i.e. a mirrored marker ca nread as a different code
+    below the flow and can decode as a valid id - i.e. a mirrored marker ca nread as a different code.
+    known=None (the explore mission w/ no map): any id is accepted, at the markers' mounting height cfg.MARKER_HEIGHT.
 
     Uses the marker POSITION (z=range, bearing) for EKF. The orientation from PnP suffers from the planar pose 
     ambiguity discussed in wk3 (part E) - for a small marker seen nearly face on, it can flip by ~10deg."""
     out = []
     f = camera.K[0, 0]
     for fid in Image(rgb).mono().fiducial(dict=cfg.ARUCO_DICT, K=camera.K, side=side):
-        if int(fid.id) not in known:
+        if known is not None and int(fid.id) not in known:
             continue
         T_CM = correct_range(fid.pose, f, side, bias_px)
         T_RM = T_RC * T_CM
-        if abs(T_RM.t[2] - known[int(fid.id)].t[2]) > height_tol:
+        height = cfg.MARKER_HEIGHT if known is None else known[int(fid.id)].t[2]
+        if abs(T_RM.t[2] - height) > height_tol:
             continue
         corners = np.asarray(fid.corners)
         size_px = np.mean(np.linalg.norm(corners - np.roll(corners, 1, axis=1), axis=0))

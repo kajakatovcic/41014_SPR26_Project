@@ -1,0 +1,39 @@
+
+=== Part 1: lidar obstacle detection
+detection rate of visible obstacles (count) by distance to their nearest point, required >= 95% within 2.5 m:
+      object        0-1 m        1-2 m      2-2.5 m      2.5-3 m      3-3.5 m
+     box_red   100% (180)   100% (211)    96% ( 69)    57% ( 14)            -
+   cyl_green   100% (168)   100% (195)   100% ( 71)    94% ( 17)            -
+    box_blue   100% (152)    99% (155)    97% (116)    59% ( 39)     0% ( 11)
+  cyl_yellow   100% (144)   100% (226)   100% ( 46)   100% (  3)            -
+        dock   100% ( 56)    94% (103)    92% ( 12)     0% (  1)            -
+         all 99.1% within 2.5 m
+2643 clusters: 1940 on objects, 703 on wall sections RANSAC left behind, 0 on nothing
+cluster points lie 6.4 mm from the true surface on average
+PASS
+
+=== Part 2: camera, ArUco range and bearing
+detection rate of fully visible, unoccluded markers (count), required >= 95% within 2m and 60deg:
+ range [m]     <30deg   30-60deg     >60deg
+   0-1     100% ( 21) 100% ( 18) 100% (  4)
+   1-2     100% ( 35) 100% ( 49)  78% ( 32)
+   2-3      92% ( 88)  96% ( 48)  59% ( 27)
+   3-4      98% ( 91)  82% ( 44)          -
+   4-6              -  83% (  6)          -
+false or wrong-id detections: 0
+
+425 detections used for the noise model
+range error before correction: mean +45.8 mm, RMS 64.2 mm
+fitted corner bias      BIAS_PX          = 0.613 px  (range error = Z^2 x bias / (f s))
+fitted range scatter    SIGMA_RANGE_PX   = 0.402 px
+fitted bearing scatter  SIGMA_BEARING_PX = 0.216 px
+range error after correction:  mean -2.2 mm, RMS 29.9 mm
+bearing error: mean -0.017 deg, std 0.023 deg
+errors inside the reported 2-sigma bounds (expect ~95%):
+   module values : range 97%, bearing 99%
+   module values : range error after correction mean -4.3 mm
+   this run's fit: range 96%, bearing 99%
+PASS
+
+perception test: PASS
+[figure saved: perception.png]

@@ -1,0 +1,63 @@
+=== Part 0: the robot's prior knowledge (cfg.DOCK_OFFSET) against the simulated room
+dock marker in the reference marker's frame: config (3.790, 1.800, 180.0 deg), room (3.790, 1.800, -180.0 deg)
+within 1 mm and 0.1 deg: PASS
+=== Part 1: localisation from the reference marker alone (robot still, 10 frames): marker yaw from the lidar wall line (used) against PnP alone (Week 3 E)
+dist [m]  angle | wall: pos err  heading err  in 2-sigma   NEES | PnP: pos err  heading err  in 2-sigma   NEES
+     0.6   -40  |          2 mm    -0.05 deg    yes        0.05 |          3 mm    -0.16 deg    yes        0.05 |
+     0.6   -20  |          1 mm    +0.06 deg    yes        0.01 |          2 mm    -0.16 deg    yes        0.01 |
+     0.6     0  |          1 mm    -0.01 deg    yes        0.02 |         62 mm    -5.80 deg    yes        1.04 |
+     0.6    20  |          1 mm    -0.00 deg    yes        0.01 |          2 mm    +0.20 deg    yes        0.01 |
+     0.6    40  |          2 mm    -0.06 deg    yes        0.05 |          3 mm    +0.20 deg    yes        0.05 |
+     0.9   -40  |          2 mm    +0.05 deg    yes        0.03 |          5 mm    -0.22 deg    yes        0.03 |
+     0.9   -20  |          5 mm    +0.02 deg    yes        0.13 |         10 mm    +0.59 deg    yes        0.12 |
+     0.9     0  |          3 mm    +0.00 deg    yes        0.07 |          4 mm    -0.14 deg    yes        0.07 |
+     0.9    20  |          5 mm    +0.01 deg    yes        0.17 |         10 mm    -0.56 deg    yes        0.14 |
+     0.9    40  |          2 mm    -0.04 deg    yes        0.03 |          4 mm    +0.26 deg    yes        0.03 |
+     1.2   -40  |          6 mm    +0.08 deg    yes        0.11 |         23 mm    -1.07 deg    yes        0.09 |
+     1.2   -20  |          4 mm    +0.18 deg    yes        0.04 |         11 mm    +0.54 deg    yes        0.03 |
+     1.2     0  |          2 mm    +0.04 deg    yes        0.02 |          8 mm    -0.31 deg    yes        0.02 |
+     1.2    40  |          7 mm    +0.02 deg    yes        0.14 |         35 mm    +1.66 deg    yes        0.20 |
+     1.5   -40  |          5 mm    +0.01 deg    yes        0.05 |         29 mm    -1.06 deg    yes        0.08 |
+     1.5   -20  |          1 mm    -0.01 deg    yes        0.00 |         12 mm    -0.45 deg    yes        0.01 |
+     1.5     0  |         11 mm    -0.04 deg    yes        0.18 |        280 mm   -10.68 deg    yes        3.51 |
+     1.5    40  |         17 mm    -0.04 deg    yes        0.41 |         39 mm    +1.40 deg    yes        0.34 |
+yaw from the wall line: 18 of 18 views localised; heading within 2 deg in 100%, median position error 3 mm, worst 17 mm / 0.2 deg; inside the prior's 2-sigma bounds: position 100%, heading 100%; NEES below the 97.5% bound (9.35) in 100%
+yaw from PnP alone: 18 of 18 views localised; heading within 2 deg in 89%, median position error 10 mm, worst 280 mm / 10.7 deg; inside the prior's 2-sigma bounds: position 100%, heading 100%; NEES below the 97.5% bound (9.35) in 100%
+wall line: localised from >= 90% of views with the heading within 2 deg in >= 90%: PASS
+=== Part 2: explore missions from 10 random starts in front of the reference marker (0.6-1.4 m, up to 40 deg off its normal), spline paths and straight segments on the same seeds
+    ctrl trial  ok   time | localised         init err |  EKF RMS    max   NEES | plans resets | clear obs  walls | dock dist  lateral  heading
+     lqr     0 yes  43.4s |      0.9s      3 mm  -0.1 deg |     4 mm   7 mm   1.97 |     1      0 |    9.8 cm  30 cm |    +10 mm    -1 mm  +0.2 deg
+     lqr     1 yes  38.6s |      0.9s      1 mm  +0.0 deg |     6 mm  10 mm   1.29 |     1      0 |    8.4 cm  30 cm |    +10 mm    +1 mm  -0.1 deg
+     lqr     2 yes  44.2s |      0.9s      1 mm  -0.0 deg |     6 mm   9 mm   2.25 |     1      0 |    9.9 cm  30 cm |    +10 mm    -0 mm  +0.1 deg
+     lqr     3 yes  42.9s |      0.9s      1 mm  +0.0 deg |     8 mm  15 mm   2.76 |     1      0 |    9.7 cm  30 cm |    +10 mm    -1 mm  +0.2 deg
+     lqr     4 yes  45.1s |      0.9s      1 mm  +0.1 deg |     7 mm  17 mm   1.18 |     1      0 |    9.4 cm  30 cm |    +10 mm    -2 mm  +0.2 deg
+     lqr     5 yes  46.1s |      0.9s      2 mm  -0.0 deg |     4 mm   7 mm   1.50 |     1      0 |    8.3 cm  30 cm |    +10 mm    +1 mm  -0.1 deg
+     lqr     6 yes  45.8s |      0.9s      1 mm  +0.0 deg |     6 mm  29 mm   1.90 |     1      0 |   10.2 cm  30 cm |    +10 mm    -0 mm  +0.0 deg
+     lqr     7 yes  48.4s |      0.9s      3 mm  -0.0 deg |     6 mm  13 mm   1.93 |     1      0 |    5.8 cm  30 cm |    +10 mm    +0 mm  -0.1 deg
+     lqr     8 yes  43.1s |      0.9s      2 mm  -0.1 deg |     8 mm  17 mm   1.09 |     1      0 |   10.2 cm  30 cm |    +10 mm    +1 mm  -0.1 deg
+     lqr     9 yes  43.5s |      0.9s      2 mm  +0.0 deg |     6 mm  12 mm   2.05 |     1      0 |   10.5 cm  30 cm |    +10 mm    +0 mm  -0.1 deg
+straight     0 yes  48.1s |      0.9s      3 mm  -0.1 deg |     5 mm   8 mm   2.29 |     1      0 |    8.7 cm  30 cm |     +9 mm    -5 mm  +0.7 deg
+straight     1 yes  42.2s |      0.9s      1 mm  +0.0 deg |     5 mm  11 mm   1.13 |     1      0 |    8.4 cm  30 cm |    +10 mm    +0 mm  -0.1 deg
+straight     2 yes  48.8s |      0.9s      1 mm  -0.0 deg |     6 mm  11 mm   2.08 |     1      0 |    8.5 cm  30 cm |    +10 mm    -6 mm  +0.8 deg
+straight     3 yes  46.0s |      0.9s      1 mm  +0.0 deg |     6 mm  10 mm   2.11 |     1      0 |    6.4 cm  30 cm |    +10 mm    -4 mm  +0.7 deg
+straight     4 yes  48.5s |      0.9s      1 mm  +0.1 deg |     6 mm  10 mm   1.26 |     1      0 |    7.5 cm  30 cm |    +10 mm    +0 mm  -0.1 deg
+straight     5 yes  47.8s |      0.9s      2 mm  -0.0 deg |     4 mm   7 mm   1.88 |     1      0 |    7.8 cm  30 cm |    +10 mm    -4 mm  +0.6 deg
+straight     6 yes  49.9s |      0.9s      1 mm  +0.0 deg |     7 mm  13 mm   3.06 |     1      0 |    6.2 cm  30 cm |     +9 mm    -4 mm  +0.6 deg
+straight     7 yes  49.1s |      0.9s      3 mm  -0.0 deg |     5 mm  12 mm   1.43 |     1      0 |    3.0 cm  30 cm |    +10 mm    -4 mm  +0.7 deg
+straight     8 yes  44.6s |      0.9s      2 mm  -0.1 deg |     8 mm  26 mm   1.79 |     1      0 |   11.0 cm  30 cm |     +9 mm    +2 mm  -0.4 deg
+straight     9 yes  47.9s |      0.9s      2 mm  +0.0 deg |     4 mm   7 mm   1.66 |     1      0 |    6.5 cm  30 cm |     +9 mm    -4 mm  +0.7 deg
+lqr: 10/10 successful, 10/10 docked, collisions in 0
+   time 44.1 s (localised at 0.9 s, driving from 5.6 s, docking from 35.3 s)
+   EKF RMS 6 mm, worst 29 mm, mean NEES 1.79
+   paths planned per mission 1.0 (in total: {'start': 10, 'path blocked': 0, 'off path': 0, 'corridor': 0, 'dock found': 0, 'dock abort': 0}), failed plans 0, map restarts 0.0
+   closest approach beyond the robot's radius: obstacles 5.8 cm (mean of the per-mission minimum 9.2 cm), walls 30.0 cm
+   docking |error|: distance 9.8 mm, lateral 0.8 mm, heading 0.1 deg
+straight: 10/10 successful, 10/10 docked, collisions in 0
+   time 47.3 s (localised at 0.9 s, driving from 5.5 s, docking from 38.4 s)
+   EKF RMS 5 mm, worst 26 mm, mean NEES 1.87
+   paths planned per mission 1.0 (in total: {'start': 10, 'path blocked': 0, 'off path': 0, 'corridor': 0, 'dock found': 0, 'dock abort': 0}), failed plans 0, map restarts 0.0
+   closest approach beyond the robot's radius: obstacles 3.0 cm (mean of the per-mission minimum 7.4 cm), walls 30.1 cm
+   docking |error|: distance 9.6 mm, lateral 3.3 mm, heading 0.6 deg
+spline paths: >= 90% successful, no collisions: PASS
+navigation test (parts [0, 1, 2]): PASS
+[figure saved: navigation.png]

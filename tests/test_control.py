@@ -1,4 +1,6 @@
-# Evaluate the controller (src/control/control.py)
+# Evaluate the controller (src/control/control.py) on the ROUTE mission (main.py --mission route): the LQR design
+# and the path-following/docking controller that the explore mission's Navigator builds on, on a fixed route so the
+# controllers can be compared on the same path. The explore mission is evaluated in tests/test_navigation.py.
 #   Part 0 - the route: clearance of the planned path from the known obstacles and walls, beyond the robot's
 #            radius (Anthony Fava's check, src/control/mission.py), for the spline and for straight segments
 #   Part 1 - LQR design (from wk6 A.5)- Bryson's rule, the gain and the closed-loop poles across driving speeds
@@ -138,7 +140,8 @@ def part3(n):
     res = {"lqr": [], "straight": [], "simple": []}
     for name in res:
         for i in range(n):
-            log, c = main.run(seed=200 + i, controller=name, encoder_errors=(errs[i], cfg.SIM_WHEEL_SLIP_SIGMA))
+            log, c = main.run(seed=200 + i, mission="route", controller=name,
+                              encoder_errors=(errs[i], cfg.SIM_WHEEL_SLIP_SIGMA))
             res[name].append(mission_metrics(log, c))
     print(f'{"controller":>11} {"trial":>6} {"done":>5} {"time":>7} {"path RMS":>9} {"path max":>9} '
           f'{"omega RMS":>10} {"d omega/dt RMS":>15} | {"dock distance":>13} {"lateral":>8} {"heading":>8}')
@@ -167,7 +170,7 @@ def part4():
     rows = []
     for dy, dth in [(0.0, 0.0), (0.1, 0.0), (-0.1, 0.0), (0.2, 0.0), (0.0, 0.3), (0.15, -0.3)]:
         start = (pre[0], pre[1] + dy, dth)
-        log, c = main.run(start=start, waypoints=[], duration=60, seed=300)
+        log, c = main.run(mission="route", start=start, waypoints=[], duration=60, seed=300)
         m = mission_metrics(log, c)
         rows.append((dy, dth, m))
         dist, lat, hd = m["dock"]

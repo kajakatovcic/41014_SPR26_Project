@@ -1,0 +1,269 @@
+FINDINGS: CONTROL (CRITERION D), INCLUDING THE INTEGRATION OF ANTHONY FAVA'S CONTROL WORK - ROUTE MISSION
+TurtleBot3 Waffle Pi, MuJoCo, Track A
+This file is the ROUTE mission (fixed waypoints; now main.py --mission route, the baseline). The LQR design, the
+trade-off and docking (sections 3, 4, 6) are shared with the default explore mission, whose navigator and lidar
+planner are in findings_explore.txt. test_control.py still runs the route mission; its numbers are unchanged.
+Raw notes, to be formatted for the project page / report. Companion to findings_A_B.txt and findings_C_loop.txt.
+
+Where the numbers come from (raw output in outputs/, figures in figures/):
+  python tests/test_control.py              route clearance, LQR design, trade-off, 3 missions per    outputs/control.txt
+                                            controller (seeds 200-202, random odometry errors),        figures/control.png
+                                            docking from offset starts (seed 300)
+  python main.py                            one mission, spline LQR + docking (seed 0)                 outputs/main_lqr.txt
+  python main.py --controller straight      the same on straight segments (the pre-merge controller)   outputs/main_straight.txt
+  python main.py --controller simple        the Week 8 C.4 placeholder                                 outputs/main_simple.txt
+  python tests/test_robustness.py --trials 10 [--controller straight]   (findings_E)
+
+
+====================================================================================================
+1. DESIGN (src/control/control.py, MissionController)
+====================================================================================================
+Runs on the ESTIMATED pose (EKF) and sensor data only. Three modes, plus a lidar detour planner.
+
+1.1 The reference path (control.Path)
+- A cubic spline through START_POSE and the WAYPOINTS, with the start heading set to the start pose's heading and
+  the end heading set to face the dock (Anthony Fava's Trajectory geometry, src/control/trajectory.py).
+- Sampled every 1 cm: position, tangent heading theta_r, curvature kappa and arc length s.
+- Route (Anthony's): (-0.6, -1.3), (-0.1, -0.7), (-0.05, 0.2), (0.1, 0.85), (0.5, 1.0), (1.0, 1.0), pre-dock
+  (1.1, 1.0). Spline length 4.36 m.
+- Route clearance beyond the robot's radius (Anthony's check, test_control.py Part 0):
+    spline (used)        length 4.36 m, 8.8 cm from obstacles, 20.0 cm from walls
+    straight segments    length 4.30 m, 6.0 cm from obstacles, 20.0 cm from walls
+  The previous route ((1.2, -1.45), (1.2, 0.2), (1.1, 1.0)) only cleared an obstacle by 0.9 cm when splined, which
+  is why the route changed with the spline.
+- smooth=False (python main.py --controller straight) gives straight segments between the same points: the
+  pre-merge behaviour, kept for comparison. Detour legs are always straight (1.5).
+
+1.2 Track: LQR path following with curvature feed-forward
+- Model: the 2-state cross-track / heading error model of Weeks 5 D and 8 B,
+    e_y' = v e_theta,  e_theta' = omega - omega_r   (e = actual - reference; e_y positive to the left of the path)
+  discretised by zero-order hold at CONTROL_DT = 0.05 s (Week 5 C5).
+- Nearest path point: searched up to 0.5 m ahead of the current one, so progress along the path is monotonic.
+- Control: omega = v kappa - K(v) [e_y, e_theta]
+    v kappa         curvature feed-forward (omega_r = v kappa, Anthony's), so curves are driven, not corrected
+    K(v)            ct.dlqr gain (Week 6 A.4), Bryson's rule (Week 6 A.5): e_y max 50 mm, e_theta max 10 deg,
+                    steering effort max 0.5 rad/s -> Q = diag(400.0, 32.8), R = 4.0. v sits inside A (Week 5 D),
+                    so K is gain-scheduled on the speed being driven (cached per cm/s).
+- Speed: v = min(0.15, 0.8 / kappa_max, max(0.04, 0.6 x distance to the end or the next corner))
+    0.15 m/s nominal (66 % of the 0.227 m/s top speed, leaving headroom for steering)
+    kappa_max = largest curvature in the next 0.2 m, so the feed-forward never asks for more than 0.8 rad/s
+- Lidar safety: v = omega = 0 if any lidar return lies in the 0.41 m-wide corridor out to 0.29 m ahead.
+
+1.3 Turn: turning on the spot
+- At the start, at the corners of straight (detour) legs, before docking, and whenever |e_theta| > 30 deg (outside
+  the linear model's range, Week 5 B2).
+- Lyapunov heading law (Week 6 B.6): omega = -k e_theta, k = 1.5, clipped to 0.8 x top turn rate. V = e^2 / 2
+  gives V' = -k e^2 < 0, so it converges for any k > 0. Exits below 3 deg.
+- Corner detection: on straight legs, a heading jump of more than 30 deg within the next 1.5 cm of path switches to
+  Turn and steps past the corner (bug fix, 2.4).
+
+1.4 Dock: visual docking (Week 9 D3)
+- At the pre-dock pose (1.1, 1.0), on the dock marker's normal with the camera ~0.6 m from the marker, the robot
+  turns to face the station, then drives on the CAMERA's view of the dock marker (not the EKF):
+    v = lam_v (z_M - d*),  omega = -lam_w atan2(x_M, z_M),  lam_v = 0.5, lam_w = 1.5 (tutorial values)
+  x_M, z_M = lateral offset and depth of the marker in the camera frame (perception.docking_error).
+  v clipped to [-0.05, 0.1] m/s, omega to +/-0.8 rad/s.
+- d* = DOCK_DISTANCE = 0.25 m camera-to-marker. Set by geometry: the marker can only be decoded while its 0.2 m
+  plate fits in the 480 px image height, Z >= 0.2 m x 530 px / 480 px = 0.22 m.
+- Docked when |z_M - d*| < 10 mm and |x_M| < 10 mm (DOCK_TOL). Target docked pose: robot origin (1.459, 1.0),
+  heading 0.
+- No lidar stop while docking (the dock itself is the obstacle being approached). If the marker is not seen for
+  0.25 s: stop and turn towards where the EKF says the marker is.
+
+1.5 Detour around an unmapped obstacle (extension for criterion E; not from the tutorials)
+- If the path stays blocked for 1 s: the obstacle = the lidar returns in the corridor ahead plus anything within
+  0.3 m of them. Two new waypoints, one beside the robot and one beside the obstacle's far side (offset = the
+  obstacle's lateral extent on that side + robot radius + 5 cm), on whichever side leaves more clearance. Accepted only if every new leg keeps
+  the robot's radius + 2 cm from every return (the first, sideways leg only must not get closer than the robot
+  already is).
+- Straight legs to the first waypoint beyond the obstacle, then the rest of the planned SPLINE from that point
+  (Path.join).
+- Design scope: a minimal LOCAL replanner. The fixed route is planned around the known obstacles.
+
+
+====================================================================================================
+2. INTEGRATION OF ANTHONY FAVA'S CONTROL WORK (Anthony_Branch -> integration-branch)
+====================================================================================================
+
+2.1 What his branch had
+- Trajectory: a cubic spline through the waypoints with optional start / end headings, timed at v_ref, with
+  sample(t) giving the reference pose and the feed-forward (v_r, omega_r = v_r kappa).
+- LQRTracker: LQR on the full 3-state error model in the robot frame (Kanayama form), controlling v and omega,
+  Q = diag(40, 40, 8), R = diag(5, 2), gains from the discrete Riccati equation (forward-Euler discretisation),
+  cached per (v_r, omega_r).
+- ROUTE: waypoints through the middle of the room ending on the dock's normal; a route clearance check against the
+  known map (mission.clearance).
+
+2.2 Merged INTO the existing controller (not kept as an alternative)
+- The spline path geometry and the curvature feed-forward omega_r = v kappa (src/control/trajectory.py, used by
+  control.Path).
+- His route, now config.WAYPOINTS, ending at the existing pre-dock pose.
+- The clearance check (src/control/mission.py), now test_control.py Part 0.
+- Kept from the existing controller: path FOLLOWING (nearest point) instead of a timed reference, turning on the
+  spot, the lidar stop and detours, the EKF recovery, and Week 9 docking.
+
+2.3 Not merged, and why
+- The timed reference (Trajectory.sample) and LQRTracker. A timed reference keeps moving while the robot is stopped
+  by the lidar, so the tracking error grows without bound, and it cannot be replanned around an obstacle. In the
+  pre-merge robustness run his tracker failed 10/10 unexpected-obstacle trials ("blocked, no detour found").
+- Forward-Euler discretisation pushes the open-loop eigenvalues of a turning reference outside the unit circle
+  (findings_A_B 4.6); zero-order hold does not.
+- His saturate() assumed 0.26 m/s; the usable top speed is 0.227 m/s (findings_A_B 4.2).
+- Removed from the integration branch in the clean-up (unused): Trajectory.sample, LQRTracker, saturate,
+  to_wheel_speeds, ROUTE / DOCK_STOP / DOCK_HEADING, and his standalone test scripts. They remain on
+  Anthony_Branch.
+
+2.4 Bugs found while merging (all fixed)
+1. Overshooting sharp straight-leg corners: at a ~92 deg detour corner the nearest path point stayed AT the corner
+   with the old heading, so the robot kept driving straight. Fixed by corner detection (1.3).
+2. Rejoining after a detour: rejoining with straight legs through the remaining waypoints cut into known obstacles
+   (the waypoints were designed for the spline). Fixed: rejoin the spline itself (Path.join).
+3. Robustness obstacle placement: on the new route the obstacle scenario placed the cylinder in the 0.52 m gap
+   between the yellow and green cylinders, which a 0.5 m robot keeping 2 cm clearance cannot pass. It now
+   places it 15-22 % along the controller's own path, on the open first leg. The gap case needs global
+   replanning (limitation, section 8).
+
+2.5 Comparison before and after the merge (robustness: 12 scenarios x 10 trials; details in findings_E 3-5)
+                                    pre-merge straight   Anthony's tracker   straight segments   MERGED (spline)
+                                    (old route)          (pre-merge run)     (new route)
+  successful                        109/120              98/120              110/120             107/120
+  mission time (nominal)            54 s                 37 s                50 s                40 s
+  unexpected obstacle               10/10                0/10                10/10 (56 s)        10/10 (52 s)
+  landmarks missing, worst EKF      248 mm               60 mm               68 mm               66 mm
+  calibration error, lateral dock   13.8 mm              5.7 mm              4.5 mm              5.4 mm
+  odometry x3 / combined            10/10 / 9/10         9/10 / 9/10         10/10 / 10/10       9/10 / 8/10
+  push while docking                0/10                 0/10                0/10                0/10
+- The first two columns are from runs made before the clean-up (Anthony's tracker no longer exists on this
+  branch); the last two are the fresh runs in outputs/robustness_*.txt.
+- The landmark and calibration improvements came from the ROUTE, not the spline: straight segments on the new
+  route show them too (likely the longer straight approach facing the dock marker, findings_E 4.2 / 4.4).
+- The spline costs 3 trials against straight segments on the same route, all estimator failures under bad odometry
+  or a push (findings_E 4.5). At 10 trials per scenario this is within trial-to-trial variation, but the mechanism
+  is consistent: the spline is 10 s faster and turns less on the spot, so it collects fewer wall-marker updates
+  (seed 0: 210 against 309) and has less time to re-converge after a disturbance before the pre-dock pose.
+
+
+====================================================================================================
+3. LQR DESIGN ON THE MODEL (test_control.py Part 1)
+====================================================================================================
+  v [m/s]   K (e_y, e_theta)   closed-loop |z|     time constants [s]   damping
+  0.04      (9.28, 2.79)       (0.993, 0.867)      (7.15, 0.35)         1.0
+  0.08      (9.25, 2.92)       (0.986, 0.867)      (3.56, 0.35)         1.0
+  0.15      (9.20, 3.11)       (0.974, 0.869)      (1.88, 0.36)         1.0
+  0.20      (9.16, 3.25)       (0.965, 0.871)      (1.39, 0.36)         1.0
+- Stable at every speed (|z| < 1); both poles real (no overshoot).
+- The slow mode is the cross-track one and its time constant scales with 1/v: the robot can only correct a
+  lateral error by driving (the nonholonomic constraint, Week 5 D1). The fast mode (heading, ~0.35 s) barely
+  depends on speed.
+- Both are well above the wheels' 0.11 s lag, which the LQR model leaves out.
+
+
+====================================================================================================
+4. TRADE-OFF CURVE AND THE NEGLECTED WHEEL LAG (Part 2)
+====================================================================================================
+v = 0.15 m/s, starting 100 mm off the path. "Nonlinear + lag" = the unicycle model with a first-order 0.11 s lag on
+the turn rate.
+  R scale   state cost   input cost   peak omega    settle to 5 mm   nonlinear + lag: settle   overshoot
+  0.01      157.1        111.04       5.07 rad/s    5.80 s           5.95 s                    0.0 mm
+  0.1       159.5         40.71       2.49 rad/s    5.85 s           5.95 s                    0.0 mm
+  1         168.7         11.91       0.92 rad/s    6.05 s           6.10 s                    0.0 mm
+  10        196.3          3.01       0.31 rad/s    6.55 s           6.55 s                    0.0 mm
+  100       267.0          0.65       0.10 rad/s    8.75 s           8.65 s                    1.4 mm
+- Defending Bryson's choice (R scale 1): making the controller 100x more aggressive (R x0.01) cuts settling only
+  from 6.05 s to 5.80 s but multiplies the peak steering command by 5.5 (0.92 -> 5.07 rad/s, beyond the
+  1.58 rad/s the wheels can deliver). Cross-track recovery is limited by forward speed, not steering effort.
+- Neglecting the wheel lag is justified: every design settles within 0.15 s of the linear prediction in the
+  nonlinear model with the lag.
+
+
+====================================================================================================
+5. MISSIONS (Part 3 and single runs)
+====================================================================================================
+
+5.1 Repeated missions: 3 trials each, same random odometry errors for every controller, EKF in the loop
+  controller           trial  done  time     path RMS  path max  omega RMS    d omega/dt RMS   docking error
+                                                                                                (distance, lateral, heading)
+  spline LQR + dock    0      yes   39.9 s   1.7 mm    3 mm      0.12 rad/s   0.26 rad/s^2     10 mm, -0 mm,  0.1 deg
+  spline LQR + dock    1      yes   39.9 s   2.1 mm    4 mm      0.12 rad/s   0.26 rad/s^2     10 mm,  0 mm, -0.0 deg
+  spline LQR + dock    2      yes   39.9 s   1.7 mm    3 mm      0.12 rad/s   0.26 rad/s^2     10 mm,  0 mm,  0.0 deg
+  straight LQR + dock  0      yes   49.9 s   3.9 mm    14 mm     0.20 rad/s   1.47 rad/s^2     10 mm,  1 mm, -0.2 deg
+  straight LQR + dock  1      yes   49.9 s   4.3 mm    17 mm     0.20 rad/s   1.47 rad/s^2     10 mm,  2 mm, -0.3 deg
+  straight LQR + dock  2      yes   50.0 s   4.0 mm    15 mm     0.20 rad/s   1.47 rad/s^2     10 mm,  1 mm, -0.2 deg
+  placeholder          0      yes   31.2 s   14.6 mm   51 mm     0.22 rad/s   1.41 rad/s^2     (no docking)
+  placeholder          1      yes   31.2 s   13.8 mm   47 mm     0.22 rad/s   1.40 rad/s^2     (no docking)
+  placeholder          2      yes   31.2 s   14.0 mm   47 mm     0.22 rad/s   1.40 rad/s^2     (no docking)
+- Path error = TRUE distance from the controller's planned path (spline, or segments), while in track mode
+  (ground truth, evaluation only). The placeholder is scored against the spline.
+- Mean path RMS / max: spline 1.8 / 4 mm, straight 4.1 / 17 mm, placeholder 14.1 / 51 mm. The spline tracks 8x
+  tighter than the placeholder and 2.3x tighter than straight segments; the straight segments' 14-17 mm maxima are
+  the overshoot at the corners.
+- Smoothness: d omega/dt RMS 0.26 rad/s^2 on the spline against 1.47 on straight segments (5.7x smoother) and
+  1.40 for the placeholder. The turn rate itself is lower too (omega RMS 0.12 against 0.20-0.22 rad/s): the
+  spline drives the curves instead of stopping and turning on the spot at each corner.
+- Time: spline 39.9 s against 49.9 s on straight segments (10 s saved, no stop-and-turn at corners). The
+  placeholder is faster (31.2 s) because it cuts corners and does not dock.
+- Docking: every LQR trial docked within 10 mm, 2 mm lateral and 0.3 deg.
+- For reference, the pre-merge controller on the old route: 54 s, path RMS 1.4 mm mean (max 9 mm, scored
+  against the waypoint polyline), omega RMS 0.25 rad/s, d omega/dt RMS 1.12 rad/s^2.
+
+5.2 Single runs (seed 0, default odometry errors; outputs/main_*.txt, figures/main_*.png)
+  controller           result            time     path RMS / max   docking error             EKF RMS / max   marker updates
+  spline LQR + dock    docked            39.9 s   2 / 4 mm         +10 mm, -0 mm, -0.0 deg   3 / 5 mm        465 (0: 250, 2: 141, 3: 5, 4: 69)
+  straight LQR + dock  docked            49.9 s   4 / 16 mm        +10 mm, +1 mm, -0.2 deg   2 / 6 mm        637 (0: 325, 2: 216, 3: 3, 4: 93)
+  placeholder          finished          31.2 s   15 / 50 mm       50 mm from final wpt      2 / 7 mm        409 (0: 191, 2: 154, 3: 3, 4: 61)
+- No gate rejections in any run; mean NIS 0.46-0.52. No lidar safety stops (the route is clear).
+- Straight segments collect 37 % more marker updates (and 47 % more from wall markers 2 and 4) than the spline:
+  10 s longer, and the turns on the spot sweep the camera across the markers. This is the mechanism behind the
+  robustness difference in 2.5 / findings_E 4.5.
+
+
+====================================================================================================
+6. DOCKING FROM OFFSET STARTS (Part 4)
+====================================================================================================
+Docking only, starting at the pre-dock pose (1.1, 1.0) moved sideways and/or rotated (seed 300):
+  start offset              docked   time     distance   lateral   heading
+  y   +0 mm, theta  +0 deg  yes      8.8 s     9 mm       0 mm      0.0 deg
+  y +100 mm, theta  +0 deg  yes      8.8 s     6 mm      49 mm     -8.2 deg
+  y -100 mm, theta  +0 deg  yes      8.8 s     6 mm     -49 mm      8.1 deg
+  y +200 mm, theta  +0 deg  yes      9.1 s    -4 mm      95 mm    -16.0 deg
+  y   +0 mm, theta +17 deg  yes      9.9 s     9 mm       1 mm     -0.1 deg
+  y +150 mm, theta -17 deg  yes     10.0 s     2 mm      72 mm    -12.0 deg
+- A start rotated on the normal docks perfectly: the bearing term turns the robot back.
+- A start off the normal docks facing the marker but off-centre and skewed: about half the start offset remains
+  laterally (49 mm of 100, 95 of 200) with ~8 deg of heading error per 100 mm. This is exactly the Week 9 D3
+  prediction: the law only regulates range and bearing, so once the marker is centred and at d* both commands are
+  zero, whatever the lateral offset. A unicycle cannot move sideways (nonholonomic), so removing the offset needs a
+  manoeuvre the law never makes.
+- Why the full mission still docks well: the LQR tracker, steering on the EKF estimate, delivers the robot to the
+  pre-dock pose ON the normal (to within millimetres), already facing the dock on the spline: the "planned
+  approach to a pre-dock point on the normal" that Week 9 suggests.
+- Docking error is therefore set by how accurately the robot reaches the pre-dock pose: estimation error plus
+  tracking error at that point. The dead-reckoning run (findings_C 4.2: 78 mm lateral) and the failures in
+  findings_E 4.5 show the same effect.
+
+
+====================================================================================================
+7. EFFECT ON CRITERION C (tests/test_estimation.py on the final mission)
+====================================================================================================
+- 5 trials, spline LQR + docking in the loop (40 s missions, all docked, true docking error 10 mm).
+- EKF RMS 3.1 mm against dead reckoning 102 mm. Mean NEES 2.71; 2-sigma coverage position 100 %, heading 99 %;
+  mean NIS 0.50; 1 marker update rejected. Verdict: consistent. Full results in findings_C_loop.txt 4.1.
+
+
+====================================================================================================
+8. LIMITATIONS AND NEXT STEPS
+====================================================================================================
+- Docking off the normal leaves a lateral error (section 6), and a push during docking fails 10/10 with every
+  controller version (findings_E 4.6). Extension the tutorial itself suggests: a docking law that also uses the
+  marker's yaw (polar-coordinate docking), or re-planning to the normal when the lateral offset at pre-dock is too
+  large. The yaw from PnP is unreliable face on (planar ambiguity, findings_A_B 2.2), so a polar law would need to
+  use it only close up.
+- Docking stops ~10 mm short every time: it stops as soon as the camera reads |z_M - d*| < 10 mm, approaching
+  from outside. A tighter DOCK_TOL trades this against docking time (the approach slows exponentially near d*,
+  time constant 1 / lam_v = 2 s).
+- The route is fixed waypoints chosen around the KNOWN obstacles; the lidar is used for safety and local detours,
+  not global planning. An unmapped obstacle in a gap narrower than the robot plus clearance (e.g. between the
+  yellow and green cylinders, 0.52 m) cannot be passed (2.4).
+- Speed vs estimation: the faster spline mission gives the EKF fewer wall-marker updates (5.2). If robustness to
+  bad odometry matters more than time, a lower nominal speed, or waiting at pre-dock until the EKF position sigma
+  is small, would trade some of the 10 s back.

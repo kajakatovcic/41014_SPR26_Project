@@ -1,0 +1,52 @@
+
+=== Part 0: route clearance beyond the robot's radius (Anthony Fava's check, src/control/mission.py)
+     spline (used): length 4.36 m, clearance from obstacles 8.8 cm, walls 20.0 cm
+ straight segments: length 4.30 m, clearance from obstacles 6.0 cm, walls 20.0 cm
+the spline route keeps at least 5 cm beyond the robot's radius: PASS
+
+=== Part 1: LQR design (Week 6 A.5, Bryson's rule)
+largest acceptable values: e_y 50 mm, e_theta 10 deg, steering 0.5 rad/s  ->  Q = diag(400.0, 32.8), R = 4.0
+ v [m/s]       K (e_y, e_theta)    |z| closed loop     time constants [s]  damping
+    0.04            [9.28 2.79]    [0.993  0.8668]            [7.15 0.35]      1.0
+    0.08            [9.25 2.92]    [0.9861 0.8673]            [3.56 0.35]      1.0
+    0.15            [9.2  3.11]    [0.9737 0.8688]            [1.88 0.36]      1.0
+    0.20            [9.16 3.25]    [0.9646 0.8707]            [1.39 0.36]      1.0
+all closed loops stable (|z| < 1). The slowest closed-loop time constant is far above the wheels' 0.11 s lag, which the model leaves out: PASS
+
+=== Part 2: trade-off curve (Week 6 A.5), v = 0.15 m/s, starting 100 mm off the path
+ R scale  state cost  input cost  peak omega  settle (5 mm) |  nonlinear + lag: settle  overshoot
+    0.01       157.1      111.04     5.07 rad/s        5.80 s |                   5.95 s     0.0 mm
+     0.1       159.5       40.71     2.49 rad/s        5.85 s |                   5.95 s     0.0 mm
+       1       168.7       11.91     0.92 rad/s        6.05 s |                   6.10 s     0.0 mm
+      10       196.3        3.01     0.31 rad/s        6.55 s |                   6.55 s     0.0 mm
+     100       267.0        0.65     0.10 rad/s        8.75 s |                   8.65 s     1.4 mm
+the Bryson design (R scale 1) settles in the nonlinear model with the wheel lag as in the linear one
+
+=== Part 3: missions, spline route vs straight segments vs the Week 8 C.4 placeholder (3 trials each)
+ controller  trial  done    time  path RMS  path max  omega RMS  d omega/dt RMS | dock distance  lateral  heading
+        lqr      0  True  39.9 s    1.7 mm      3 mm  0.12 rad/s      0.26 rad/s2 |         10 mm    -0 mm   0.1 deg
+        lqr      1  True  39.9 s    2.1 mm      4 mm  0.12 rad/s      0.26 rad/s2 |         10 mm     0 mm  -0.0 deg
+        lqr      2  True  39.9 s    1.7 mm      3 mm  0.12 rad/s      0.26 rad/s2 |         10 mm     0 mm   0.0 deg
+   straight      0  True  49.9 s    3.9 mm     14 mm  0.20 rad/s      1.47 rad/s2 |         10 mm     1 mm  -0.2 deg
+   straight      1  True  49.9 s    4.3 mm     17 mm  0.20 rad/s      1.47 rad/s2 |         10 mm     2 mm  -0.3 deg
+   straight      2  True  50.0 s    4.0 mm     15 mm  0.20 rad/s      1.47 rad/s2 |         10 mm     1 mm  -0.2 deg
+     simple      0  True  31.2 s   14.6 mm     51 mm  0.22 rad/s      1.41 rad/s2 |                     (no docking)
+     simple      1  True  31.2 s   13.8 mm     47 mm  0.22 rad/s      1.40 rad/s2 |                     (no docking)
+     simple      2  True  31.2 s   14.0 mm     47 mm  0.22 rad/s      1.40 rad/s2 |                     (no docking)
+      lqr: mean time 39.9 s, mean path RMS 1.8 mm, max 4 mm
+ straight: mean time 49.9 s, mean path RMS 4.1 mm, max 17 mm
+   simple: mean time 31.2 s, mean path RMS 14.1 mm, max 51 mm
+every mission controller run docked within 20 mm and 3 deg, and the spline controller tracks its path more tightly than the placeholder: PASS
+
+=== Part 4: docking from offset starts (Week 9 D3), straight from a pre-dock pose
+            start offset | docked    time  distance   lateral   heading
+   y +0 mm, theta +0 deg |   True   8.8 s      9 mm     -0 mm    0.0 deg
+ y +100 mm, theta +0 deg |   True   8.8 s      6 mm     49 mm   -8.2 deg
+ y -100 mm, theta +0 deg |   True   8.8 s      6 mm    -49 mm    8.1 deg
+ y +200 mm, theta +0 deg |   True   9.1 s     -4 mm     95 mm  -16.0 deg
+  y +0 mm, theta +17 deg |   True   9.9 s      9 mm      1 mm   -0.1 deg
+y +150 mm, theta -17 deg |   True  10.0 s      2 mm     72 mm  -12.0 deg
+the law nulls range and bearing, so a start off the marker's normal ends facing the marker but off its normal (Week 9 D3): the lateral error grows with the start offset
+
+control test: PASS
+[figure saved: control.png]
