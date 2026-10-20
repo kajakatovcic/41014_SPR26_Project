@@ -26,6 +26,7 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | `findings/` | Test outputs, figures and written findings per marking criterion (see [findings/README.md](findings/README.md)) |
 | `setup_tests/` | Scripts to check the environment, MuJoCo and the TurtleBot3 sensors (see [setup_tests/README.md](setup_tests/README.md)) |
 | `robotis_mujoco_menagerie/` | ROBOTIS MuJoCo models (git submodule), TurtleBot3 in `robotis_tb3/` |
+| `external/turtlebot_rosbridge/` | UTS-RI rosbridge API for the real TurtleBot (git submodule, read-only): camera, lidar, joint states, `/cmd_vel` |
 
 ### Tutorial content used within this assignment 
 | Requirement | Tutorial |
@@ -42,11 +43,11 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | Occupancy grid + A* planning from the LiDAR | This is not covered in tutorials - extension for the explore mission |
 
 ## Setup
-1. Clone with the submodule:
+1. Clone with the submodules (`robotis_mujoco_menagerie` and `external/turtlebot_rosbridge`):
    ```
    git clone --recurse-submodules https://github.com/kajakatovcic/41014_SPR26_Project.git
    ```
-   If you have already cloned it, run `git submodule update --init`.
+   If you have already cloned it, run `git submodule update --init`. This also fetches any submodule added since.
 2. Create the virtual environment and install the packages (Python 3.12):
    ```
    python3.12 -m venv .venv
@@ -56,8 +57,35 @@ LiDAR and visually docks to the ArUco-marked charging station.
    python -m pip install --no-deps machinevision-toolbox-python
    python -m pip install mvtb-data ansitable pgraph-python
    ```
-3. In VS Code, select the interpreter with `Ctrl+Shift+P` → **Python: Select Interpreter** → `.venv\Scripts\python.exe`.
-4. Run the set-up tests to check everything works:
+3. For the real robot, install the rosbridge API (`external/turtlebot_rosbridge`), again without its
+   dependencies, then add the ones it needs:
+   ```
+   python -m pip install --no-deps -e "./external/turtlebot_rosbridge"
+   python -m pip install "roslibpy>=2.0,<3" "pynput>=1.7"
+   ```
+   `--no-deps` Is important- The package asks for `opencv-python`, which would be installed over
+   `opencv-contrib-python` 4.10 (both write the same `cv2` folder). It only needs `cv2.imdecode`, which the contrib
+   build already provides. `roslibpy` is the rosbridge client, and `pynput` is for the keyboard teleop example
+   (the `[teleop]` extra, which `--no-deps` skips).
+   Check that OpenCV is still 4.10 and the API imports:
+   ```
+   python -c "import cv2, roslibpy; from rosbridge_api import RosbridgeRobot; print(cv2.__version__)"
+   ```
+   It should print `4.10.0`. If it shows `5.x`, `opencv-python` got in: run
+   `python -m pip uninstall -y opencv-python opencv-contrib-python`, then reinstall
+   `opencv-contrib-python==4.10.0.84`. If pip reports *Access is denied* on `cv2.pyd`, a running Python process
+   (a `main.py` or viewer window, or a VS Code Jupyter kernel) has OpenCV loaded: close it and retry.
+
+   Treat the submodule as read-only: changes made inside it cannot be pushed (it points at UTS-RI's repository), so
+   everyone else's clones would break. Put robot-specific code in this repository instead. The examples run from here,
+   with the robot's address (`192.168.1.2XX`, `XX` = TurtleBot ID):
+   ```
+   python external/turtlebot_rosbridge/examples/camera.py 192.168.1.2XX
+   python external/turtlebot_rosbridge/examples/laser_scan.py 192.168.1.2XX
+   python external/turtlebot_rosbridge/examples/teleop.py 192.168.1.2XX
+   ```
+4. In VS Code, select the interpreter with `Ctrl+Shift+P` → **Python: Select Interpreter** → `.venv\Scripts\python.exe`.
+5. Run the set-up tests to check everything works:
    ```
    python setup_tests/test_waffle_sensors.py
    python setup_tests/test_waffle_lidar.py
