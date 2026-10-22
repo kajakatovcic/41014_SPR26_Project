@@ -26,6 +26,7 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | `findings/` | Test outputs, figures and written findings per marking criterion (see [findings/README.md](findings/README.md)) |
 | `setup_tests/` | Scripts to check the environment, MuJoCo and the TurtleBot3 sensors (see [setup_tests/README.md](setup_tests/README.md)) |
 | `robotis_mujoco_menagerie/` | ROBOTIS MuJoCo models (git submodule), TurtleBot3 in `robotis_tb3/` |
+| `hardware_integration/` | The explore mission on the real TurtleBot through rosbridge (see [hardware_integration/README.md](hardware_integration/README.md)) |
 | `external/turtlebot_rosbridge/` | UTS-RI rosbridge API for the real TurtleBot (git submodule, read-only): camera, lidar, joint states, `/cmd_vel` |
 
 ### Tutorial content used within this assignment 

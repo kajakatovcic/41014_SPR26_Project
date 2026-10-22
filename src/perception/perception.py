@@ -1,8 +1,8 @@
 """Perception for Track A.
-Incorporates the 2D lidar and RGB camera measurements for the estimator and controller.
+Incorporates the 2D LiDAR and RGB camera measurements for the estimator and controller.
 
 Everything here works on sensor data only (lidar ranges, camera images) and never on simulator state.
-This way it can be pointed at the real TurtleBot3 unchanged.
+This way it can be pointed at the real TurtleBot3 without making any changes.
 
 Tutorial work used in this subsystem: 
     Lidar   Week 4: Range-bearing model, frames with SE3, voxel + outlier filtering, RANSAC, DBSCAN
@@ -94,7 +94,8 @@ class LidarResult:
     obstacles: list # [Obstacle]
 
 
-def process_scan(rho, rng, wall_thresh=0.02, wall_min_points=40, wall_min_length=1.0, eps=0.1, min_points=4):
+def process_scan(rho, rng, wall_thresh=0.02, wall_min_points=40, wall_min_length=1.0, eps=0.1, min_points=4,
+                 T_RS=cfg.T_RS, ransac_iters=500):
     """
     SPlit a scan into walls (sequential RANSAC lines) + obstacles (DBSCAN on what is left), robot frame. 
 
@@ -103,13 +104,15 @@ def process_scan(rho, rng, wall_thresh=0.02, wall_min_points=40, wall_min_length
     points, so min_points is small. It is tuned in test/tests_perception.py.
     A flat obstacle face close to the robot also returns many collinear points so a line only counts as a wall if
     its inliers span wall_min_length (longer than any obstacle face). Shorter lines go back to the obstacle points.
+    T_RS is the LiDAR's mount on the robot (the real robot's can differ from the simulated one)- ransac_iters the
+    RANSAC hypotheses per wall (fewer on the real robot, where the scan must be processed in real time).
     """
-    P_R = lidar_points(rho)
+    P_R = lidar_points(rho, T_RS)
     P = clean_cloud(P_R)[:, :2]
 
     walls, rest, not_walls = [], P, []
     while len(rest) > wall_min_points:
-        line, inl = ransac_line(rest, wall_thresh, 500, rng)
+        line, inl = ransac_line(rest, wall_thresh, ransac_iters, rng)
         if inl.sum() < wall_min_points:
             break
         # The inliers of an infinite line can include a few points where other surfaces cross it, so keep only
