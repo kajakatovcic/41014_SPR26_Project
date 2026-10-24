@@ -94,3 +94,20 @@ docks in about 52sec (8mm, −2mm lateral), and `--obstacle-appears 20` makes it
   people moving.
 - **Accuracy depends on `DOCK_OFFSET`.** An error in it moves the pre-dock pose by the same amount. Docking itself
   steers on the camera, so it still centres on the dock marker.
+
+
+
+## Track set up
+
+- **Track possitioning**  the dock `DOCK_ID = 0` is currently set to be 0.9mx0.9m away and to the right of the
+  the reference marker `REF_MARKER_ID = 11` this is set in `DOCK_OFFSET = (0.9, -0.9, np.pi/2)`
+- **ArUco marker possitioning** the markers are 0.1x0.1m, `MARKER_SIDE = 0.1`, and are set to 0.175m off the ground
+  `MARKER_HEIGHT = 0.175` as this is the size of the A4 paper they are printed on THIS SHOULD BE CHANGED THOUGH AS THE
+  CAMERA CANT SEEE IT WHEN IT GETS TOO CLOSE.
+- **ArUco marker setup** printed from https://chev.me/arucogen/ the dock is ID: 0 and the ref is ID: 1, amek sure they 
+  are upright otherwise the camera will not reconginse them 
+
+
+## 
+
+

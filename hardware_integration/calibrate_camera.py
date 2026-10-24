@@ -16,6 +16,15 @@ From saved images instead:
 The result goes to hardware_integration/camera_calibration.json, which hw_config loads.
 --grid is the number of INTERNAL corners (columns, rows) and --square the side of one square [m]: @TODO measure them.
 """
+
+#-------------results------------------
+
+# 21 of 21 images used; reprojection RMS 0.352 px (per image 0.163-0.547 px, worst image 7)
+# f/rho_u 1280.4 px, f/rho_v 1276.8 px, principal point (344.1, 210.7) px
+# distortion (k1, k2, p1, p2, k3) = [0.0121, 3.2384, -0.0119, 0.0085, -22.3924]
+# saved to C:\Users\lilyb\Sensors and Controls\41014_SPR26_Project\hardware_integration\camera_calibration.json
+
+
 import argparse
 import json
 import sys

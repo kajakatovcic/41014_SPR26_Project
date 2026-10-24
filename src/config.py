@@ -80,7 +80,7 @@ CAMERA_CAL_PP = (319.32, 239.22) # (u0, v0) [px]
 # Checkerboard calibration target (Week 3 Part B). 10 x 7 squares therefore 9 x 6 internal corners. One odd and one even
 # dimension makes the corner order unambiguous.
 CHECKERBOARD_GRID = (9, 6) # internal corners (columns, rows)
-CHECKERBOARD_SQUARE = 0.04 # m
+CHECKERBOARD_SQUARE = 0.025 # m         #based off the checkboard i printed off (lily)
 
 # ArUco markers
 ARUCO_DICT = "4x4_50"

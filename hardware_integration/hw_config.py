@@ -26,14 +26,14 @@ WHEEL_SIGNS = (1.0, 1.0) # +1 if the joint angle increases when the robot drives
 
 # Markers and room (the robot's only prior knowledge, as in the simulation's explore mission)
 ARUCO_DICT = "4x4_50" # @TODO MEASURE: the dictionary the markers were printed from
-MARKER_SIDE = 0.15 # m, side of the BLACK square of the printed markers. @TODO MEASURE
-MARKER_HEIGHT = 0.13 # m, height of the marker centres above the floor (rejects floor reflections). @TODO MEASURE
+MARKER_SIDE = 0.1 # m, side of the BLACK square of the printed markers. @TODO MEASURE
+MARKER_HEIGHT = 0.175 # m, height of the marker centres above the floor (rejects floor reflections). @TODO MEASURE
 REF_MARKER_ID = 1 # the marker the robot localises from: must be on a straight wall >= 1m long (wall-line yaw)
 DOCK_ID = 0 # the marker on the charging station
 # The dock marker's pose in the reference marker's frame {A}: x along the reference marker's normal (out of the
 # wall, into the room), y to the left of it, angle of the dock marker's normal. @TODO MEASURE with a tape: from the
 # reference marker's centre, the distance out from its wall and along it to the dock marker's centre.
-DOCK_OFFSET = (3.790, 1.800, np.pi)
+DOCK_OFFSET = (0.9, -0.9, np.pi/2)
 PREDOCK_DISTANCE = 0.75 # m, robot origin to the dock marker at the pre-dock pose
 DOCK_DISTANCE = 0.25 # m, camera to marker when docked (the camera must still decode the marker)
 DOCK_TOL = (0.01, 0.01) # m
@@ -52,10 +52,11 @@ BIAS_PX = 0.0 # corner bias fitted in simulation (0.64px) is a property of the r
 # Driving limits for the real robot (the Waffle Pi can do 0.26m/s and 1.82rad/s. start gently)
 V_NOMINAL = 0.12 # m/s, path-following speed
 V_LIMIT = 0.15 # m/s, every command is clipped to these
-W_LIMIT = 1.0 # rad/s
+W_LIMIT = 0.2 # rad/s
 CONTROL_DT = 0.05 # s, loop period (20Hz)
 RANSAC_ITERS = 150 # wall-fit hypotheses per wall (simulation: 500). With ~350 scan points and walls holding a large
-# share of them, 150 still finds each wall almost surely, at under a third of the cost. the scan must fit the loop
+# share of them, 150 still finds each wall almost
+#  surely, at under a third of the cost. the scan must fit the loop
 WATCHDOG = 0.5 # s, stop if odometry or lidar data is older than this
 TURNING_FOR_WALL_YAW = 0.2 # rad/s, use the wall-line heading update only when turning slower than this (the scan
 # and the camera frame are up to ~50ms apart on the real robot, and the scan itself takes 0.2sec)
