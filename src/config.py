@@ -160,5 +160,5 @@ PLAN_CLEARANCE = ROBOT_RADIUS + 0.05 # m, the planned path keeps the robot origi
 
 # Docking (Week 9 D3)- stop with the camera DOCK_DISTANCE in front of the dock marker, centred on it. The camera can
 # only decode the marker while its 0.2m plate fits in the 480 x image height: Z >= 0.2m x 530px / 480px = 0.22m
-DOCK_DISTANCE = 0.25 # m, camera to marker when docked
+DOCK_DISTANCE = 0.4 # m, camera to marker when docked
 DOCK_TOL = (0.01, 0.01) # m, docked when |depth - DOCK_DISTANCE| and |lateral offset| are both inside these

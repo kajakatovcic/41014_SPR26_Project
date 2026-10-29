@@ -27,15 +27,15 @@ WHEEL_SIGNS = (1.0, 1.0) # +1 if the joint angle increases when the robot drives
 # Markers and room (the robot's only prior knowledge, as in the simulation's explore mission)
 ARUCO_DICT = "4x4_50" # @TODO MEASURE: the dictionary the markers were printed from
 MARKER_SIDE = 0.1 # m, side of the BLACK square of the printed markers. @TODO MEASURE
-MARKER_HEIGHT = 0.1 # m, height of the marker centres above the floor (rejects floor reflections). @TODO MEASURE
+MARKER_HEIGHT = 0.12 # m, height of the marker centres above the floor (rejects floor reflections). @TODO MEASURE
 REF_MARKER_ID = 1 # the marker the robot localises from: must be on a straight wall >= 1m long (wall-line yaw)
 DOCK_ID = 0 # the marker on the charging station
 # The dock marker's pose in the reference marker's frame {A}: x along the reference marker's normal (out of the
 # wall, into the room), y to the left of it, angle of the dock marker's normal. @TODO MEASURE with a tape: from the
 # reference marker's centre, the distance out from its wall and along it to the dock marker's centre.
-DOCK_OFFSET = (1.0, -3.5, np.pi / 2)
+DOCK_OFFSET = (1.0, -2.5, 0)
 PREDOCK_DISTANCE = 0.5 # m, robot origin to the dock marker at the pre-dock pose
-DOCK_DISTANCE = 0.25 # m, camera to marker when docked (the camera must still decode the marker)
+DOCK_DISTANCE = 0.4 # m, camera to marker when docked (the camera must still decode the marker)
 DOCK_TOL = (0.01, 0.01) # m
 
 # Sensor mounts on the robot {R} (x forward, y left, z up, origin on the floor between the wheels). @TODO MEASURE
