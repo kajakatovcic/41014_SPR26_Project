@@ -108,6 +108,4 @@ docks in about 52sec (8mm, −2mm lateral), and `--obstacle-appears 20` makes it
   are upright otherwise the camera will not reconginse them 
 
 
-## 
-
 

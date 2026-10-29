@@ -25,8 +25,8 @@ from src.perception import perception as per
 
 # LiDAR safety corridor in the robot frame - the chassis half width plus a margin, out to a stopping distance ahead
 # of the camera housing (the front of the robot, x = 0.086m)
-CORRIDOR_HALF_WIDTH = 0.153 + 0.05
-STOP_DISTANCE = 0.086 + 0.20
+CORRIDOR_HALF_WIDTH = 0.153 + 0.03
+STOP_DISTANCE = 0.086 + 0.10
 
 
 def obstacle_ahead(points_R, half_width=CORRIDOR_HALF_WIDTH, stop=STOP_DISTANCE):
