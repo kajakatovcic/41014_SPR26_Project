@@ -26,20 +26,20 @@ WHEEL_SIGNS = (1.0, 1.0) # +1 if the joint angle increases when the robot drives
 
 # Markers and room (the robot's only prior knowledge, as in the simulation's explore mission)
 ARUCO_DICT = "4x4_50" # @TODO MEASURE: the dictionary the markers were printed from
-MARKER_SIDE = 0.15 # m, side of the BLACK square of the printed markers. @TODO MEASURE
-MARKER_HEIGHT = 0.13 # m, height of the marker centres above the floor (rejects floor reflections). @TODO MEASURE
+MARKER_SIDE = 0.1 # m, side of the BLACK square of the printed markers. @TODO MEASURE
+MARKER_HEIGHT = 0.12 # m, height of the marker centres above the floor (rejects floor reflections). @TODO MEASURE
 REF_MARKER_ID = 1 # the marker the robot localises from: must be on a straight wall >= 1m long (wall-line yaw)
 DOCK_ID = 0 # the marker on the charging station
 # The dock marker's pose in the reference marker's frame {A}: x along the reference marker's normal (out of the
 # wall, into the room), y to the left of it, angle of the dock marker's normal. @TODO MEASURE with a tape: from the
 # reference marker's centre, the distance out from its wall and along it to the dock marker's centre.
-DOCK_OFFSET = (3.790, 1.800, np.pi)
-PREDOCK_DISTANCE = 0.75 # m, robot origin to the dock marker at the pre-dock pose
-DOCK_DISTANCE = 0.25 # m, camera to marker when docked (the camera must still decode the marker)
+DOCK_OFFSET = (1.0, -2.5, 0)
+PREDOCK_DISTANCE = 0.5 # m, robot origin to the dock marker at the pre-dock pose
+DOCK_DISTANCE = 0.4 # m, camera to marker when docked (the camera must still decode the marker)
 DOCK_TOL = (0.01, 0.01) # m
 
 # Sensor mounts on the robot {R} (x forward, y left, z up, origin on the floor between the wheels). @TODO MEASURE
-CAMERA_POS = (0.0855, 0.0, 0.107) # m, camera centre (simulation value from the menagerie model)
+CAMERA_POS = (0.07, 0.0, 0.107) # m, camera centre (simulation value from the menagerie model)
 T_RC = SE3(*CAMERA_POS) * SE3(SO3(np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])))
 T_RS = SE3(-0.049, 0.0, 0.1255) # LiDAR scan origin (simulation value). scan angle 0 = robot forward, CCW positive
 
@@ -48,17 +48,24 @@ T_RS = SE3(-0.049, 0.0, 0.1255) # LiDAR scan origin (simulation value). scan ang
 CAMERA_SIZE = (cfg.CAMERA_WIDTH, cfg.CAMERA_HEIGHT) # camera_ros is started at 640x480
 CALIBRATION_FILE = HERE / "camera_calibration.json"
 BIAS_PX = 0.0 # corner bias fitted in simulation (0.64px) is a property of the renderer: 0 until fitted on hardware
+CHECKERBOARD_GRID = (9, 6) # internal corners (columns, rows) of the printed calibration board
+CHECKERBOARD_SQUARE = 0.025 # m, side of one square of the printed board (simulation board: 0.04)
 
 # Driving limits for the real robot (the Waffle Pi can do 0.26m/s and 1.82rad/s. start gently)
 V_NOMINAL = 0.12 # m/s, path-following speed
 V_LIMIT = 0.15 # m/s, every command is clipped to these
-W_LIMIT = 1.0 # rad/s
+W_LIMIT = 0.4 # rad/s
 CONTROL_DT = 0.05 # s, loop period (20Hz)
 RANSAC_ITERS = 150 # wall-fit hypotheses per wall (simulation: 500). With ~350 scan points and walls holding a large
 # share of them, 150 still finds each wall almost surely, at under a third of the cost. the scan must fit the loop
 WATCHDOG = 0.5 # s, stop if odometry or lidar data is older than this
 TURNING_FOR_WALL_YAW = 0.2 # rad/s, use the wall-line heading update only when turning slower than this (the scan
 # and the camera frame are up to ~50ms apart on the real robot, and the scan itself takes 0.2sec)
+# LiDAR safety corridor (src/control/control.py obstacle_ahead): the chassis half width plus a margin, out to a
+# stopping distance ahead of the camera housing (x = 0.086m). Tuned on the real track; simulation: 0.153 + 0.05 and
+# 0.086 + 0.20
+CORRIDOR_HALF_WIDTH = 0.153 + 0.03 # m
+STOP_DISTANCE = 0.086 + 0.10 # m
 
 
 def load_calibration():
@@ -79,9 +86,14 @@ def camera_model():
 
 
 def apply():
-    """Copy the values src/ looks up in src.config at call time (marker height and dictionary, dock id)."""
+    """Copy the values src/ looks up in src.config at call time (marker height and dictionary, dock id), and the
+    hardware safety corridor into src/control/control.py. Only the hardware scripts call this, so the simulation keeps
+    the values in src/."""
     cfg.MARKER_HEIGHT = MARKER_HEIGHT
     cfg.ARUCO_DICT = ARUCO_DICT
     cfg.DOCK_ID = DOCK_ID
     cfg.REF_MARKER_ID = REF_MARKER_ID
     cfg.DOCK_OFFSET = DOCK_OFFSET
+    from src.control import control
+    control.CORRIDOR_HALF_WIDTH = CORRIDOR_HALF_WIDTH # read at call time by the path-blocked check
+    control.obstacle_ahead.__defaults__ = (CORRIDOR_HALF_WIDTH, STOP_DISTANCE) # bound when control.py was imported

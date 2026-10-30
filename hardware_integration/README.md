@@ -57,8 +57,10 @@ speed loops itself, so the simulation's MuJoCo deadband compensation is not used
    - Point the camera at a marker: its ID, range and height should be right.
 4. **Calibrate the camera.** You need a printed checkerboard. Measure its internal corners and square size.
    ```
-   python hardware_integration/calibrate_camera.py 192.168.1.2XX --grid 9 6 --square 0.04
+   python hardware_integration/calibrate_camera.py 192.168.1.2XX --grid 9 6 --square 0.025
    ```
+   The defaults are the printed board's (`CHECKERBOARD_GRID`, `CHECKERBOARD_SQUARE` in `hw_config.py`), so the
+   options are only needed for a different board.
    Keep 15–25 views across the whole image, at different distances and tilts. Aim for an RMS under 0.5px.
 5. **Dry run.** The robot never moves.
    ```
@@ -67,13 +69,15 @@ speed loops itself, so the simulation's MuJoCo deadband compensation is not used
    Face the robot at the reference marker. It should localise within about 1sec (the summary says "marker yaw from
    the wall") and plan a path to the dock. The plot shows its LiDAR map and plan in the reference marker's frame.
    Drive it around with teleop: the estimated path should follow.
-6. **Full run.** Keep a hand on Ctrl+C which stops the robot. Speeds are capped at 0.15m/s and 1rad/s.
+6. **Full run.** Keep a hand on Ctrl+C which stops the robot. Speeds are capped at 0.15m/s and 0.4rad/s.
    ```
    python hardware_integration/run_hardware.py 192.168.1.2XX --show-camera --video runs/run1.mp4 --log runs/run1.pkl
    ```
 
 To test any of this without the robot, add `--sim`. For example `python hardware_integration/run_hardware.py --sim`
-docks in about 52sec (8mm, −2mm lateral), and `--obstacle-appears 20` makes it replan around an obstacle.
+docks in about 52sec (8mm, −2mm lateral), and `--obstacle-appears 20` makes it replan around an obstacle. The
+stand-in is the simulated room, so those results were with the simulation's values in `hw_config.py` and no
+`camera_calibration.json`. With the real track's values below it will not find the dock.
 
 ## Differences from the simulation to expect
 
@@ -94,3 +98,26 @@ docks in about 52sec (8mm, −2mm lateral), and `--obstacle-appears 20` makes it
   people moving.
 - **Accuracy depends on `DOCK_OFFSET`.** An error in it moves the pre-dock pose by the same amount. Docking itself
   steers on the camera, so it still centres on the dock marker.
+
+
+
+## Track set up
+
+The values the real track and robot use, all in `hw_config.py`:
+
+| Setting | Value | Notes |
+|:--|:--|:--|
+| Markers | `ARUCO_DICT = "4x4_50"`, reference `REF_MARKER_ID = 1`, dock `DOCK_ID = 0` | Printed from https://chev.me/arucogen/. Mount them upright, or the camera will not recognise them. |
+| Marker size | `MARKER_SIDE = 0.1` m | The side of the black square. |
+| Marker height | `MARKER_HEIGHT = 0.12` m | The marker centres above the floor. |
+| Dock position | `DOCK_OFFSET = (1.0, -2.5, 0)` | From the reference marker's centre: 1.0m out from its wall and 2.5m along it to the right (negative y), with the dock marker facing the same way as the reference marker (angle 0). |
+| Pre-dock pose | `PREDOCK_DISTANCE = 0.5` m | The robot's origin to the dock marker before docking starts. |
+| Docked | `DOCK_DISTANCE = 0.4` m | The camera stops 0.4m from the dock marker, far enough that it still sees the whole marker. |
+| Camera mount | `CAMERA_POS = (0.07, 0.0, 0.107)` m | |
+| Turning speed | `W_LIMIT = 0.4` rad/s | Speed limit stays `V_LIMIT = 0.15` m/s. |
+| LiDAR safety corridor | `CORRIDOR_HALF_WIDTH = 0.183` m, `STOP_DISTANCE = 0.186` m | Narrower and shorter than the simulation's 0.203m and 0.286m. `hw_config.apply()` sets them for the hardware scripts only, so the simulation keeps its own. |
+| Calibration board | `CHECKERBOARD_GRID = (9, 6)`, `CHECKERBOARD_SQUARE = 0.025` m | The simulated board's squares are 0.04m. |
+
+The camera calibration in `camera_calibration.json` (2026-10-30) used 17 views of that board: reprojection RMS
+0.50px, f ≈ 1336px and 1342px, principal point (321, 172)px. `calibration_images/` holds 21 saved views, so it is
+not exactly the set that calibration used.

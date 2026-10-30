@@ -11,6 +11,30 @@ For a few seconds it collects /joint_states, /odom, /scan and the camera, then r
     camera        rate, image size, and the ArUco markers detected with their range and bearing
 Usage: python hardware_integration/check_sensors.py 192.168.1.2XX [--seconds 10]   (or --sim)
 """
+
+# py hardware_integration\check_sensors.py 192.168.1.210 --seconds 10
+# === /joint_states: 197 messages (20/s)
+# joint names: ['wheel_left_joint', 'wheel_right_joint']
+# wheel angles turned during the check: left +0.000 rad, right +0.000 rad
+#    (the wheels barely moved: drive the robot forward during the check to verify the signs)
+
+# === /odom: 198 messages (20/s)
+# TurtleBot's own odometry position: (1.051, 0.450) m
+
+# === /scan: 49 scans (4.9/s; the LDS-01 runs at ~5/s)
+# 360 beams, angle_min 0.0 deg, increment 1.00 deg, range 0.12-3.50 m
+# 'no return' encoded as: 202 zeros, 0 nan, 0 inf, 0 below range_min
+# after conversion to the pipeline's 360 beams: 135 valid returns
+# nearest return 0.25 m at bearing +21 deg (an object straight ahead should read ~0, one on the robot's left ~+90)
+# perception: 0 walls, 7 obstacles
+
+# === camera: 297 frames (29.7/s)
+# image size 640 x 480 (pipeline: 640 x 480)
+# no markers detected in the last frame (point the camera at one to check ARUCO_DICT and size)
+
+# all topics present
+
+
 import argparse
 import sys
 import time

@@ -16,6 +16,8 @@ Usage:
 Options: --odom-source joint_states|odom, --straight, --max-time, --show-camera, --video PATH, --log PATH, --no-plot.
 Stop at any time with Ctrl+C. The robot is sent a stop command on the way out.
 """
+
+
 import argparse
 import pickle
 import sys

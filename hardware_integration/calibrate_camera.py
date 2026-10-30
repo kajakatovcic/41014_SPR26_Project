@@ -6,7 +6,7 @@ distortion, so the full (k1, k2, p1, p2, k3) model is fitted. The pipeline undis
 (robot_io.RobotIO.read_image) and then uses the pinhole model as in simulation.
 
 Live from the robot (sends no commands):
-    python hardware_integration/calibrate_camera.py 192.168.1.2XX [--grid 9 6] [--square 0.04]
+    python hardware_integration/calibrate_camera.py 192.168.1.2XX [--grid 9 6] [--square 0.025]
   A window shows the camera with the detected board. Hold the printed checkerboard in front of the robot at
   different distances (0.4-1.2m), positions across the image (including the corners) and tilts (up to ~40deg).
     SPACE  keep this view (only when the board is detected)     C  calibrate with the views kept (>= 12)
@@ -14,8 +14,16 @@ Live from the robot (sends no commands):
 From saved images instead:
     python hardware_integration/calibrate_camera.py --folder hardware_integration/calibration_images
 The result goes to hardware_integration/camera_calibration.json, which hw_config loads.
---grid is the number of INTERNAL corners (columns, rows) and --square the side of one square [m]: @TODO measure them.
+--grid is the number of INTERNAL corners (columns, rows) and --square the side of one square [m]. The defaults are the
+printed board's (hw_config.CHECKERBOARD_GRID, CHECKERBOARD_SQUARE).
 """
+
+#-------------results------------------
+# The calibration in camera_calibration.json (2026-10-30 10:09), which the pipeline uses:
+# 17 views of the 9 x 6 board with 0.025m squares; reprojection RMS 0.503 px
+# f/rho_u 1336.0 px, f/rho_v 1342.0 px, principal point (321.4, 171.6) px
+# distortion (k1, k2, p1, p2, k3) = [0.2107, 1.2261, -0.0383, -0.0005, -17.4953]
+
 import argparse
 import json
 import sys
@@ -89,9 +97,9 @@ def main():
     parser = argparse.ArgumentParser(description="Calibrate the robot's camera from checkerboard views")
     parser.add_argument("host", nargs="?", help="robot IP address (live capture)")
     parser.add_argument("--folder", default=None, help="calibrate from the images in this folder instead")
-    parser.add_argument("--grid", type=int, nargs=2, default=list(hw.cfg.CHECKERBOARD_GRID),
+    parser.add_argument("--grid", type=int, nargs=2, default=list(hw.CHECKERBOARD_GRID),
                         help="internal corners (columns rows)")
-    parser.add_argument("--square", type=float, default=hw.cfg.CHECKERBOARD_SQUARE, help="square side [m]")
+    parser.add_argument("--square", type=float, default=hw.CHECKERBOARD_SQUARE, help="square side [m]")
     parser.add_argument("--save-dir", default=str(hw.HERE / "calibration_images"))
     args = parser.parse_args()
     grid = tuple(args.grid)
