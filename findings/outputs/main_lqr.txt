@@ -1,9 +1,0 @@
-run time 39.9 s, DOCKED (according to the robot)
-true distance from the planned path while tracking: RMS 2 mm, max 4 mm
-true docking error: distance +10 mm, lateral -0 mm, heading -0.0 deg
-      estimator error: final    0 mm /  0.0 deg, RMS    3 mm /  0.1 deg, max    5 mm
- dead reckoning error: final  303 mm /  7.5 deg, RMS  189 mm /  5.6 deg, max  304 mm
-EKF: 465 marker updates, 0 rejected by the gate, mean NIS 0.52 (2 for a consistent filter)
-marker detections: 465 {0: 250, 2: 141, 3: 5, 4: 69}
-lidar safety stops: 0 control periods
-[figure saved: main_lqr.png]

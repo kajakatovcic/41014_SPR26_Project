@@ -1,3 +1,11 @@
+.DS_store
+.idea
 .venv/
 .vscode/
 __pycache__/
+external/
+robotis_mujoco_menagerie/
+hardware_integration/
+setup_tests/
+src/
+tests/

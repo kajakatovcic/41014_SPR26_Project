@@ -1,9 +1,0 @@
-run time 31.2 s, finished (according to the robot)
-true distance from the planned path while tracking: RMS 15 mm, max 50 mm
-true distance from the final waypoint: 50 mm
-      estimator error: final    1 mm /  0.1 deg, RMS    2 mm /  0.1 deg, max    7 mm
- dead reckoning error: final  390 mm / 13.0 deg, RMS  211 mm /  8.2 deg, max  390 mm
-EKF: 409 marker updates, 0 rejected by the gate, mean NIS 0.46 (2 for a consistent filter)
-marker detections: 409 {0: 191, 2: 154, 3: 3, 4: 61}
-lidar safety stops: 0 control periods
-[figure saved: main_simple.png]

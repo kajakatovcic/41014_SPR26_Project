@@ -1,8 +1,0 @@
-run time 42.7 s, DOCKED (according to the robot)
-true distance from the planned path while tracking: RMS 118 mm, max 206 mm
-true docking error: distance +1 mm, lateral +78 mm, heading -13.0 deg
-      estimator error: final  434 mm / 14.7 deg, RMS  257 mm /  9.6 deg, max  434 mm
- dead reckoning error: final  434 mm / 14.7 deg, RMS  257 mm /  9.6 deg, max  434 mm
-marker detections: 449 {0: 263, 2: 116, 3: 5, 4: 65}
-lidar safety stops: 0 control periods
-[figure saved: main_dr.png]
