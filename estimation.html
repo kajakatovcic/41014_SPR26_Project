@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Criterion C: the EKF and EKF-SLAM design, tuning by NEES, and reported performance against dead reckoning.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C Estimation</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="stylesheet" href="./static/css/project.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/index.js"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold" href="./index.html">TurtleBot visual docking</a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item" href="./modelling.html">A&nbsp;Modelling</a>
+      <a class="navbar-item" href="./sensing.html">B&nbsp;Sensing</a>
+      <a class="navbar-item is-active" href="./estimation.html">C&nbsp;Estimation</a>
+      <a class="navbar-item" href="./control.html">D&nbsp;Control</a>
+      <a class="navbar-item" href="./robustness.html">E&nbsp;Robustness</a>
+      <a class="navbar-item" href="./hardware.html">Hardware</a>
+    </div>
+    <div class="navbar-end">
+      <a class="navbar-item" href="https://github.com/kajakatovcic/41014_SPR26_Project">
+        <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <p class="is-size-6 has-text-grey">Criterion C</p>
+      <h1 class="title is-2 publication-title">Estimation</h1>
+      <p class="is-size-5">EKF design, tuning and reported performance</p>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+
+    <div class="callout tutorial">
+      <div class="callout-title">References to tutorial content</div>
+      <p>The EKF predict and update functions, \(h_{rb}\) and \(H_{rb}\) (Week 7 C.3&ndash;C.5), sequential updates
+        (Week 7 D.2), NEES and NIS consistency and Q<sub>d</sub> tuning (Week 7 D.3, D.4), closing the loop on the
+        estimate (Week 8 B, C), and EKF-SLAM landmark augmentation (Week 7 C).
+        Code: <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/src/estimation/estimation.py"><code>src/estimation/estimation.py</code></a>.
+        Evaluated by <code>python tests/test_estimation.py</code> (add <code>--mission route</code> for the route EKF).</p>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat"><strong>11.3mm</strong><span>EKF position RMS over 5 explore missions</span></div>
+      <div class="stat"><strong>86mm</strong><span>dead reckoning on the same odometry</span></div>
+      <div class="stat"><strong>1.88</strong><span>mean NEES (3 = consistent)</span></div>
+      <div class="stat"><strong>100%</strong><span>2&sigma; coverage, position and heading</span></div>
+    </div>
+
+    <h2 class="title is-3">1. The odometry that the filter needs to correct</h2>
+    <p>
+      After the caster fix (<a href="./modelling.html">A</a>) the simulated wheels rolled without slipping, and dead
+      reckoning stayed within 9&nbsp;mm over a whole mission. An EKF would have had nothing to correct, so we added the
+      two classic error sources from Borenstein's UMBmark categories to the simulated encoders:
+    </p>
+    <ul>
+      <li><b>Systematic:</b> Each wheel's effective radius differs from the nominal 0.033&nbsp;m, by a different
+        amount on each side (default +0.8% left, &minus;0.4% right, random &plusmn;0.8% per trial in the tests), so that the
+        heading drifts.</li>
+      <li><b>Random:</b> slip, a random walk on each wheel angle with variance growing with the angle turned
+        (0.02&nbsp;rad/&radic;rad) and then quantisation to 4096 ticks/rev.</li>
+    </ul>
+    <p>The robot's software does not ever see these values.</p>
+
+    <h2 class="title is-3">2. EKF design</h2>
+    <p>State \(\mathbf{x} = (x, y, \theta)\) built from the Week 7 functions.</p>
+    <p>
+      <b>Predict.</b> The exact-arc unicycle \(f\) and its Jacobian \(F\) driven by the encoder odometry measured over
+      the last control period (20&nbsp;Hz). Week 7 used a constant Q<sub>d</sub>. We derive Q<sub>d</sub> instead from
+      the odometry error model - each wheel's distance \(\Delta s\) has variance
+    </p>
+    \[ \sigma_{\Delta s}^2 = (\sigma_{scale}\,\Delta s)^2 + \sigma_{slip}^2\, r\,|\Delta s| + \sigma_{quant}^2,
+       \qquad \sigma_{scale} = 1\%,\ \ \sigma_{slip} = 0.02\ \text{rad}/\sqrt{\text{rad}}, \]
+    <p>
+      which is mapped onto the pose through the Jacobian \(G\) of \(f\) with respect to the two wheel distances:
+      \(Q_d = k_Q\, G\,\Sigma\,G^T\). Consequentially, a stationary robot gains no uncertainty, and a fast turn gains
+      mostly heading uncertainty.
+    </p>
+    <p>
+      <b>Update:</b> One ArUco range-and-bearing measurement at a time, with the covariance perception reports for it
+      (<a href="./sensing.html">B</a>), scaled by \(k_R = (k_\rho, k_\alpha)\). The bearing innovation is wrapped. We made two
+      additions:
+    </p>
+    <ul>
+      <li><b>&chi;&sup2; gate</b> on the normalised innovation squared: reject if
+        \(\nu^T S^{-1} \nu > 11.83\) (2 degrees of freedom, 99.7%). It catches outliers such as a mis-identified
+        marker.</li>
+      <li><b>Lock-out recovery</b> (added for criterion E). After an unseen jump such as a push, P is still small, so
+        every <i>correct</i> measurement fails the gate and the filter never recovers. If every marker measurement has
+        been rejected for 5 frames in a row (0.5&nbsp;s) the filter adds diag(0.3&nbsp;m, 0.3&nbsp;m, 30&deg;)&sup2;
+        to P and reprocesses the frame. It never fires in nominal missions.</li>
+    </ul>
+    <p><b>Final tuning:</b> \(k_Q = 3\), \(k_R = (5, 1)\). Explanation to how we got here is in section 5.</p>
+
+    <h2 class="title is-3" id="slam">3. MarkerSLAM: the explore mission's filter</h2>
+    <p>
+      The explore mission starts with no known pose and no marker map (as required for real hardware) so the filter runs in the reference marker's
+      frame {A} (<a href="./sensing.html#frames">frames</a>). It differs from the route EKF in four ways.
+    </p>
+    <p>
+      <b>Initialisation from one marker:</b> The position comes from the marker's PnP pose since range and bearing
+      are accurate. The marker's yaw comes from the LiDAR wall line it hangs on as PnP's yaw suffers the planar
+      ambiguity (<a href="./sensing.html#fusion">B, section 5</a>). The prior covariance is the Jacobian of the pose
+      with respect to (range, bearing, yaw), with \(\sigma_{yaw} = 1^\circ\) from the wall or \(6^\circ\) from PnP. The
+      yaw uncertainty therefore appears as a rotation about the marker. This is exactly the direction one marker cannot observe.
+    </p>
+    <p id="wall">
+      <b>Wall-line heading measurement.</b> One marker never observes the full pose
+      (<a href="./modelling.html">A, section 5</a>), and near the dock the dock marker is the only marker in view. But
+      when a LiDAR wall line from the same instant passes within 0.15&nbsp;m of a known marker in view, and agrees with
+      its PnP normal to within 30&deg;, the wall's normal in the robot frame is the marker's facing direction \(\psi\).
+      That direction \(\phi_M\) in {A} is known, so
+    </p>
+    \[ z = \psi = \phi_M - \theta, \qquad H = [0,\ 0,\ -1], \qquad \sigma = 1^\circ, \qquad \text{gate } \chi^2_1 = 8.81. \]
+    <p>
+      One marker plus its wall observes the full pose. Five rejections in a row, meaning a turn the odometry did not
+      see, trigger the same lock-out recovery. The main loop reads the LiDAR before the camera when both are due, so
+      the wall line and the marker come from the same instant.
+    </p>
+    <p>
+      <b>EKF-SLAM.</b> Any other marker is added to the state when first seen using the inverse range-and-bearing
+      model and its Jacobians, but only once the dock marker has been seen ("anchored"). When tested, we were able to find the reason. Markers
+      mapped before that are placed from an estimate whose rotation is not yet observed. They later pull the estimate
+      away from the dock marker - in one run, 32 dock-marker measurements were gated out and the robot docked 145&nbsp;mm
+      off. Mapped markers are dropped when the lock-out recovery fires.
+    </p>
+    <p>
+      <b>Known landmarks:</b> The reference marker at the origin of {A}, and the dock marker at
+      <code>DOCK_OFFSET</code>. They use the same Q/R tuning, gate and recovery as the route EKF.
+    </p>
+
+    <h2 class="title is-3">4. Results</h2>
+    <h3 class="title is-4">Explore mission (5 missions from the default start, seeds 100&ndash;104)</h3>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <tbody>
+          <tr><td>EKF position RMS</td><td><b>11.3&nbsp;mm</b> (5.2&ndash;22.1 per mission), worst 69&nbsp;mm</td></tr>
+          <tr><td>Dead reckoning from the same start estimate</td><td>86&nbsp;mm RMS, up to 232&nbsp;mm at the end</td></tr>
+          <tr><td>Mean NEES (3 = consistent)</td><td>1.88, NEES under the 97.5% bound on 99% of 4579 steps</td></tr>
+          <tr><td>2&sigma; coverage, position/heading</td><td>100%/100%</td></tr>
+          <tr><td>Mean NIS (2 expected), gate rejections</td><td>0.55, 0</td></tr>
+          <tr><td>Wall-line heading updates (one traced mission)</td><td>74, none rejected, mean NIS 0.02</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <b>Conclusion:</b> Consistent and on the conservative side. The wall update's NIS of 0.02 shows its 1&deg; &sigma; is
+      generous since the wall fit is good to about 0.1&deg;. Week 7 advises remaining conservative when unsure.
+    </p>
+    <p>
+      <b>Where the error comes from.</b> The worst mission (69&nbsp;mm) drove from 6 to 21&nbsp;s with no known marker
+      in view - the dock marker was not detected during "look" from 3.5&nbsp;m. Its heading drifted 3&deg; on odometry,
+      and the first sighting of the dock marker corrected it to 0.1&deg;. Accuracy is set by how long the robot drives
+      without a known marker. Heading RMS is 0.75&deg;, against 0.1&deg; in the route mission with five known markers.
+    </p>
+    <figure class="fig">
+      <img src="./static/figures/main_explore.png" alt="Estimate and 2-sigma bound against ground truth over one mission">
+      <figcaption>
+        <b>The estimate and its uncertainty against the true state</b> (default mission, seed 0). Right: position and
+        heading error with the filter's 2&sigma; band, dead reckoning (dotted) and marker detections (green). The
+        heading error drifts to about &minus;4.5&deg; while no known marker is in view, staying inside the growing
+        2&sigma; band. At 20&nbsp;s the dock marker comes into view and both error and uncertainty collapse. Dead
+        reckoning ends 344&nbsp;mm and 11&deg; off. Left: the robot's LiDAR map, its planned path, and the true,
+        estimated and dead-reckoned paths.
+      </figcaption>
+    </figure>
+    <figure class="fig">
+      <img src="./static/figures/estimation_explore.png" alt="Position error and NEES over 5 missions, and the Q_d tuning sweep">
+      <figcaption><code>tests/test_estimation.py</code>, explore mission. Top: position error (EKF against dead
+        reckoning) and NEES over time in every trial. Bottom: accuracy, mean NEES and 2&sigma; coverage against the
+        Q<sub>d</sub> scale, replaying the recorded sensor data.</figcaption>
+    </figure>
+
+    <h3 class="title is-4">Route mission baseline (known map with 5 known markers, seeds 100&ndash;104)</h3>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Trial</th><th>Wheel radius errors</th><th>EKF RMS</th><th>EKF max</th><th>DR RMS</th><th>DR final</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>+0.54%, +0.15%</td><td>3.5mm, 0.11&deg;</td><td>8.7mm</td><td>119mm, 4.1&deg;</td><td>199mm, 6.3&deg;</td></tr>
+          <tr><td>1</td><td>&minus;0.34%, &minus;0.73%</td><td>3.2mm, 0.10&deg;</td><td>7.9mm</td><td>85mm, 3.3&deg;</td><td>153mm, 5.3&deg;</td></tr>
+          <tr><td>2</td><td>+0.76%, +0.15%</td><td>3.3mm, 0.10&deg;</td><td>9.9mm</td><td>140mm, 5.2&deg;</td><td>237mm, 7.7&deg;</td></tr>
+          <tr><td>3</td><td>+0.46%, +0.66%</td><td>3.1mm, 0.09&deg;</td><td>7.5mm</td><td>33mm, 0.9&deg;</td><td>45mm, 0.9&deg;</td></tr>
+          <tr><td>4</td><td>+0.30%, &minus;0.50%</td><td>2.2mm, 0.09&deg;</td><td>7.8mm</td><td>135mm, 4.2&deg;</td><td>219mm, 5.8&deg;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Mean EKF RMS 3.1&nbsp;mm against 102&nbsp;mm for dead reckoning (33&times;); mean NEES 2.71; 2&sigma; coverage
+      100% and 99%. Dead-reckoning drift follows the <i>difference</i> between the wheel errors, as predicted by UMBMark:
+      trial 3, with a 0.20% difference, drifts 45&nbsp;mm.
+    </p>
+    <p>
+      <b>The estimate matters for the task and not just the plot.</b> Steered by dead reckoning, the robot still reaches
+      the dock because docking steers on the camera. But it arrives off the dock marker's normal and docks
+      78&nbsp;mm to the side and 13&deg; skewed on the route mission, and 45&nbsp;mm off on the explore mission. Both
+      fail the 30&nbsp;mm criterion.
+    </p>
+
+    <h2 class="title is-3">5. Tuning: from overconfident to consistent</h2>
+    <p>
+      The first version (k<sub>Q</sub> = 1, k<sub>R</sub> = 1) was accurate with 4.3&nbsp;mm RMS, but
+      <b>overconfident</b>. Mean NEES was 6.71 against an expected 3. 2&sigma; coverage was 69% for position and 83%
+      for heading, and 29 good updates were rejected by the gate, because a too-small P makes good measurements look
+      like outliers. Using week 7 D.4's knob, scaling Q<sub>d</sub>, was unable to fix it on its own:
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Q scale (R &times;1)</th><th>RMS position</th><th>Mean NEES</th><th>2&sigma; position</th><th>2&sigma; heading</th><th>Rejected</th></tr></thead>
+        <tbody>
+          <tr><td>0.1</td><td>32.2mm</td><td>105.90</td><td>7%</td><td>21%</td><td>1218</td></tr>
+          <tr><td>0.3</td><td>5.0mm</td><td>17.62</td><td>36%</td><td>54%</td><td>181</td></tr>
+          <tr><td>1</td><td>4.3mm</td><td>6.71</td><td>69%</td><td>83%</td><td>29</td></tr>
+          <tr><td>3</td><td>4.3mm</td><td>5.07</td><td>83%</td><td>91%</td><td>24</td></tr>
+          <tr><td>10</td><td>4.8mm</td><td>4.55</td><td>88%</td><td>91%</td><td>23</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      NEES stayed above 4.5 even at 10&times;, while NIS on each single measurement looked fine. That pattern points
+      at <b>correlated measurement errors</b>. Splitting NEES by state (position 5.18 against an expected 2, heading
+      2.02 against 1) located the problem in position. We found two causes:
+    </p>
+    <ol>
+      <li><b>Q too small for a bias:</b> The wheel-radius error is a constant bias but the model treats it as fresh
+        noise each step. Over N steps without a marker, the real error grows like N while the model's standard
+        deviation grows only like &radic;N.</li>
+      <li><b>Correlated camera errors:</b> At 10&nbsp;Hz the camera sees the same marker from almost the same place
+        each frame, with almost the same error, so the filter over-counts the frames. This is evident in the
+        autocorrelation of the same marker's whitened innovations, k frames apart: range +0.33, +0.22 and +0.14 at
+        k = 1, 2, 3, against bearing &minus;0.01, +0.04 and &minus;0.01. Range errors are correlated across frames, while
+        bearing errors are not.</li>
+    </ol>
+    <p>To text fixes, we replayed the recorded sensor data offline:</p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Q</th><th>R range</th><th>R bearing</th><th>Frames used</th><th>RMS pos</th><th>NEES</th><th>2&sigma; pos / heading</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>1</td><td>1</td><td>every</td><td>4.3mm</td><td>6.71</td><td>69%/83%</td></tr>
+          <tr><td>3</td><td>1</td><td>1</td><td>every 5th</td><td>5.4mm</td><td>3.09</td><td>92%/98%</td></tr>
+          <tr><td>3</td><td>3</td><td>3</td><td>every</td><td>4.4mm</td><td>2.55</td><td>96%/100%</td></tr>
+          <tr><td>3</td><td>5</td><td>1</td><td>every</td><td>4.5mm</td><td>3.01</td><td>96%/98%</td></tr>
+          <tr><td>3</td><td>8</td><td>1</td><td>every</td><td>4.6mm</td><td>2.64</td><td>98%/100%</td></tr>
+          <tr><td>4</td><td>4</td><td>4</td><td>every</td><td>4.5mm</td><td>2.09</td><td>97%/100%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><b>Decision: k<sub>Q</sub> = 3, k<sub>R</sub> = (range 5, bearing 1).</b></p>
+    <ul>
+      <li>Q &times;3 covers the radius bias over the blind stretches between markers.</li>
+      <li>Range &times;5 follows the correlated-measurement argument. Errors correlated over about n frames carry
+        about 1/n of a frame's information each, so R<sub>eff</sub> &asymp; nR. An autocorrelation still at
+        +0.14&ndash;0.15 three frames on supports n &asymp; 5.</li>
+      <li>Bearing is left alone because its errors are independent. Inflating it as well only made the filter more
+        conservative.</li>
+      <li>Dropping frames instead of inflating R does not fix the first cause and costs accuracy.</li>
+    </ul>
+    <p>
+      Confirmed on the final system: Q &times;3 gives NEES 2.71 on the route mission and 1.88 on the explore mission.
+      Q &times;1 gives 5.18 and 4.04 (overconfident). Q &times;0.1 is catastrophic, with 186&nbsp;mm RMS and 537 good
+      measurements rejected. Accuracy barely moves anywhere from Q &times;1 to &times;10 (2.7&ndash;3.8&nbsp;mm on the
+      route); what the tuning buys is <i>consistency</i>.
+    </p>
+
+    <div class="callout beyond">
+      <div class="callout-title">Extensions beyond the tutorial material</div>
+      <ul>
+        <li>Q<sub>d</sub> derived from a physical wheel error model instead of a constant.</li>
+        <li>Tuning driven by a diagnosis (NEES by state, innovation autocorrelation) and justified quantitatively.
+           Offline replay of recorded sensor data made the sweeps exact comparisons.</li>
+        <li>A &chi;&sup2; gate and the lock-out recovery required by its failure mode.</li>
+        <li>A new measurement, the LiDAR wall-line heading, motivated by the observability analysis. It allows
+          on marker to fix the full pose.</li>
+        <li>EKF-SLAM with an anchoring rule found by testing.</li>
+      </ul>
+    </div>
+
+    <div class="callout limits">
+      <div class="callout-title">What these results do and do not support</div>
+      <ul>
+        <li>Mean NIS is about 0.5 against an expected 2. With Q &times;3 the predicted covariance is generous right after
+          each correction which is the price of covering a bias with white noise. The principled fix is to augment
+          the state with the two wheel-radius errors, x = (x, y, &theta;, e<sub>l</sub>, e<sub>r</sub>), so the filter
+          learns the robot's calibration. We have not implemented this in our project.</li>
+        <li>The tuning is for &plusmn;0.8% wheel errors. At &plusmn;2.5% (the robustness odometry scenario) the filter
+          becomes overconfident (NEES 25&ndash;45) and relies on the lock-out recovery.</li>
+        <li>Five missions per configuration. The noise statistics come from the simulator, and real wheels and real
+          camera errors will differ.</li>
+      </ul>
+    </div>
+
+    <div class="page-nav">
+      <a class="button is-light" href="./sensing.html">&larr; B Sensing</a>
+      <a class="button is-light" href="./control.html">D Control &rarr;</a>
+    </div>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container content has-text-centered is-size-7">
+    <p>41014 Sensors and Control for Mechatronic Systems, UTS, Spring 2026. Numbers from
+      <a href="https://github.com/kajakatovcic/41014_SPR26_Project/tree/main/findings"><code>findings/</code></a>.</p>
+    <p>Adapted from the <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> template, licensed
+      <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>

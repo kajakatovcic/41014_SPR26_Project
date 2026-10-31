@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Criterion E: the full system under 13 disturbance and noise scenarios, failures traced to causes, and the fixes they drove.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E Robustness</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="stylesheet" href="./static/css/project.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold" href="./index.html">TurtleBot visual docking</a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item" href="./modelling.html">A&nbsp;Modelling</a>
+      <a class="navbar-item" href="./sensing.html">B&nbsp;Sensing</a>
+      <a class="navbar-item" href="./estimation.html">C&nbsp;Estimation</a>
+      <a class="navbar-item" href="./control.html">D&nbsp;Control</a>
+      <a class="navbar-item is-active" href="./robustness.html">E&nbsp;Robustness</a>
+      <a class="navbar-item" href="./hardware.html">Hardware</a>
+    </div>
+    <div class="navbar-end">
+      <a class="navbar-item" href="https://github.com/kajakatovcic/41014_SPR26_Project">
+        <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <p class="is-size-6 has-text-grey">Criterion E</p>
+      <h1 class="title is-2 publication-title">Integration and robustness</h1>
+      <p class="is-size-5">Performance under disturbance and noise</p>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+
+    <div class="stat-grid">
+      <div class="stat"><strong>130/130</strong><span>explore missions successful (13 scenarios &times; 10)</span></div>
+      <div class="stat"><strong>104 &rarr; 130</strong><span>first version to final, from fixes these trials drove</span></div>
+      <div class="stat"><strong>0 &rarr; 10/10</strong><span>push while docking, route baseline to explore</span></div>
+      <div class="stat"><strong>0</strong><span>collisions in any trial</span></div>
+    </div>
+
+    <h2 class="title is-3">1. Method</h2>
+    <ul>
+      <li>Every trial is the whole system, from perception through the EKF, planner and LQR to visual docking
+        (<code>tests/test_robustness.py</code>).</li>
+      <li><b>Scenarios change the world but not the robot's software.</b> Each draws its disturbance at random per
+        trial, on top of random wheel-radius errors of up to &plusmn;0.8% that every trial has. Scenario k, trial i
+        uses seed 1000k + i so every trial is repeatable and every controller sees the same disturbances.</li>
+      <li><b>Success</b> = docked by the robot's own test, within 30&nbsp;mm (distance and lateral) and 5&deg; of the
+        true docked pose, with no collision with anything but the floor, in under 150&nbsp;s. Every MuJoCo contact
+        between the robot and any other geom is recorded.</li>
+      <li><b>Every failure is diagnosed automatically</b> from the logged data - a collision, an estimator that is lost
+        (EKF more than 100&nbsp;mm off), a robot blocked with no detour, docking that did not converge, or docking off
+        target with either a bad estimate at the pre-dock pose or a good one.</li>
+    </ul>
+
+    <h2 class="title is-3">2. Results (explore mission, final system)</h2>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead>
+          <tr><th>Scenario</th><th>Success</th><th>Lateral dock</th><th>Heading</th><th>EKF RMS</th><th>EKF max</th><th>NEES</th><th>Recov.</th><th>Plans</th><th>Clearance</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>nominal</td><td>10/10</td><td>0.5mm</td><td>0.1&deg;</td><td>18mm</td><td>224mm</td><td>1.69</td><td>0.0</td><td>1.1</td><td>3.5cm</td><td>47s</td></tr>
+          <tr><td>start_random: random pose in front of the marker</td><td>10/10</td><td>0.9mm</td><td>0.2&deg;</td><td>9mm</td><td>71mm</td><td>1.99</td><td>0.0</td><td>1.0</td><td>8.2cm</td><td>45s</td></tr>
+          <tr><td>start_search: random heading, must search</td><td>10/10</td><td>1.4mm</td><td>0.2&deg;</td><td>8mm</td><td>69mm</td><td>1.62</td><td>0.0</td><td>1.2</td><td>6.2cm</td><td>48s</td></tr>
+          <tr><td>odometry_x3: &plusmn;2.5% radius, 3&times; slip</td><td>10/10</td><td>3.6mm</td><td>0.6&deg;</td><td>91mm</td><td>855mm</td><td>25.03</td><td>1.7</td><td>2.8</td><td>3.3cm</td><td>54s</td></tr>
+          <tr><td>camera_noise_x4</td><td>10/10</td><td>1.2mm</td><td>0.2&deg;</td><td>19mm</td><td>224mm</td><td>1.95</td><td>0.0</td><td>1.2</td><td>5.5cm</td><td>47s</td></tr>
+          <tr><td>calibration_error: focal length about 2% off</td><td>10/10</td><td>3.0mm</td><td>0.5&deg;</td><td>19mm</td><td>65mm</td><td>100.35</td><td>0.0</td><td>1.0</td><td>8.6cm</td><td>47s</td></tr>
+          <tr><td>lidar_noise_x3</td><td>10/10</td><td>0.8mm</td><td>0.1&deg;</td><td>6mm</td><td>52 mm</td><td>1.39</td><td>0.0</td><td>1.0</td><td>8.4 cm</td><td>47 s</td></tr>
+          <tr><td>landmarks_missing: only the reference and dock markers</td><td>10/10</td><td>0.8mm</td><td>0.1&deg;</td><td>16mm</td><td>173mm</td><td>1.38</td><td>0.0</td><td>1.1</td><td>8.5cm</td><td>47s</td></tr>
+          <tr><td>push: 15&ndash;20N sideways while driving</td><td>10/10</td><td>3.3mm</td><td>0.6&deg;</td><td>81mm</td><td>775mm</td><td>57.95</td><td>1.3</td><td>3.0</td><td>3.4cm</td><td>58s</td></tr>
+          <tr><td>push_docking: the same shove while docking</td><td>10/10</td><td>3.6mm</td><td>0.6&deg;</td><td>13mm</td><td>171mm</td><td>55.91</td><td>1.9</td><td>2.0</td><td>6.3cm</td><td>68s</td></tr>
+          <tr><td>extra_obstacle: unknown cylinder on the way</td><td>10/10</td><td>0.6 mm</td><td>0.1&deg;</td><td>11mm</td><td>83mm</td><td>1.49</td><td>0.0</td><td>1.8</td><td>3.7cm</td><td>47s</td></tr>
+          <tr><td>obstacle_appears: in front of the robot mid-route</td><td>10/10</td><td>2.3mm</td><td>0.4&deg;</td><td>11mm</td><td>68mm</td><td>1.42</td><td>0.0</td><td>2.3</td><td>3.5cm</td><td>54s</td></tr>
+          <tr><td>combined: start, odometry, camera noise and a push</td><td>10/10</td><td>2.1mm</td><td>0.3&deg;</td><td>132mm</td><td>1051mm</td><td>118.58</td><td>3.3</td><td>3.5</td><td>4.7cm</td><td>53s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="is-size-7 has-text-grey">
+      Lateral and heading are mean |error| at the dock. EKF max is the worst over all 10 trials. Recov. = lock-out
+      recoveries per mission, plans = paths planned per mission, clearance = closest approach beyond the 0.25&nbsp;m
+      circle that contains the chassis. 
+    </p>
+    <figure class="fig">
+      <img src="./static/figures/robustness_explore.png" alt="Success rate, docking errors, estimation error and mission time by scenario">
+      <figcaption>Success rate and docking errors (dashed: the success box), worst EKF error and mission time, by
+        scenario.</figcaption>
+    </figure>
+
+    <h2 class="title is-3">3. A disturbed trial: an obstacle appears</h2>
+    <div class="columns">
+      <div class="column">
+        <figure class="fig">
+          <video controls muted playsinline preload="metadata" width="100%">
+            <source src="./static/videos/obstacle.mp4" type="video/mp4">
+          </video>
+          <figcaption>At t = 20&nbsp;s a cylinder appears 0.8&nbsp;m ahead of the robot. The LiDAR sees it, the path
+            is marked blocked, and the robot replans twice and docks: 10&nbsp;mm, 4&nbsp;mm lateral, 0.6&deg;.</figcaption>
+        </figure>
+      </div>
+      <div class="column">
+        <figure class="fig">
+          <img src="./static/figures/main_obstacle_appears.png" alt="The robot's map and paths with the obstacle that appeared, and estimation error">
+          <figcaption>The same run: a smooth spline before 20&nbsp;s, then straight legs around the new obstacle
+            (purple). The estimate and its 2&sigma; band against truth are on the right.</figcaption>
+        </figure>
+      </div>
+    </div>
+    <p>
+      The obstacle came within 1.2&nbsp;cm of the robot's 0.25&nbsp;m circle - the chassis itself is smaller so there
+      was no contact. It appears while the robot is driving at up to 0.15&nbsp;m/s, and the new path has to start from
+      where the robot already is. No spline between the new obstacle and the red box kept the full margin, so the
+      planner fell back to straight legs. That is the planner's designed last resort, and here it is visible.
+    </p>
+
+    <h2 class="title is-3">4. From 104/130 to 130/130 - what the trials changed</h2>
+    <p>
+      The first full run of the explore mission scored 104/130. Every scenario that does not move the robot behind
+      its odometry's back passed. These are the tests that failed:
+    </p>
+    <ul>
+      <li>odometry_x3 7/10, push 4/10, combined 4/10: all docked off target, with the EKF 63&ndash;335&nbsp;mm off at the
+        pre-dock pose;</li>
+      <li>push_docking 0/10, 61&nbsp;mm lateral, as in every route-mission version.</li>
+    </ul>
+    <p>
+      <b>The common cause</b> was due to three combined modules. After the disturbance, the only marker in view near the
+      dock is the dock marker. One marker cannot observe the rotation about it (<a href="./modelling.html">A</a>), so
+      the estimate arrived at the pre-dock pose wrong. The Week 9 law then docks off the normal because it cannot
+      remove a sideways offset (<a href="./control.html#docking">D</a>). No single module is wrong however where they meet
+      is what caused our pipeline's weakness.
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Fix</th><th>Module</th></tr></thead>
+        <tbody>
+          <tr><td>LiDAR wall-line heading measurement so one marker plus its wall observes the full pose</td><td>estimation (<a href="./estimation.html#wall">C</a>)</td></tr>
+          <tr><td>Back off and re-approach when the estimate shows the robot off the dock normal</td><td>control (<a href="./control.html">D</a>)</td></tr>
+          <tr><td>Back off by reversing out first, and limit spline curvature to 15&nbsp;/m. The first back-off tried a U-turn in 0.3&nbsp;m, crawled at 1&nbsp;mm/s, and timed out in 9 of 10 push_docking trials.</td><td>planning</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      With all three on the same seeds: odometry_x3 went from 7 to 10/10, push from 4 to 10/10, combined from 4 to
+      10/10, and push_docking from 0 to 10/10.
+    </p>
+    <p>Earlier development failures were fixed the same way. These were all found through testing:</p>
+    <ul>
+      <li>PnP yaw on its own gave a 91&nbsp;mm/6.9&deg; initial error, and once 1.8&nbsp;m. Fixed by the wall-line yaw
+        (<a href="./sensing.html#fusion">B</a>).</li>
+      <li>Walls mapped from a wrong pose stayed as ghost walls. Fixed by restarting the map on large corrections.</li>
+      <li>A lost robot waited at the "pre-dock pose" with the dock out of view. Fixed by "find" mode.</li>
+      <li>Markers mapped while lost outvoted the dock marker. Fixed by anchoring, and by dropping them on
+        recovery.</li>
+      <li>Replanning every scan near a goal beside an obstacle caused 598 replans - fixed by hysteresis.</li>
+      <li>A first curvature limit of 5&nbsp;/m silently turned the spline off: 9 of 10 missions fell back to
+        straight legs. Found by comparing the spline and straight rows, then fixed.</li>
+    </ul>
+    <p>
+      <b>The EKF lock-out recovery</b> came from the "route" mission's trials. A 17&nbsp;N push and a
+      0.2&nbsp;m/15&deg; start error both failed with over 900 correct measurements rejected by the gate because
+      after an unseen jump P is still confident. With the recovery, both were able to dock, and it never fires falsely in
+      nominal, noise, calibration, landmark or obstacle trials.
+    </p>
+
+    <h2 class="title is-3">5. Interpretation</h2>
+    <ul>
+      <li><b>Not sensitive to random noise:</b> 4&times; camera noise and 3&times; LiDAR noise are indistinguishable
+        from nominal. The filter averages random noise away as do RANSAC and DBSCAN.</li>
+      <li><b>Calibration error is the most damaging sensor fault:</b> A 2% focal-length error gives NEES 100. It is a
+        <i>systematic</i> scale error on every range (range from apparent size, n = fs/Z), and the filter models only
+        random noise so it trusts biased measurements. Every trial still docked, with 3&nbsp;mm lateral error,
+        because docking steers on the camera directly. What we learned for <a href="./sensing.html">B</a> - calibration
+        accuracy matters more than image noise.</li>
+      <li><b>Lost and recovered:</b> In odometry_x3, push and combined the estimate is lost by up to
+        0.86&ndash;1.05&nbsp;m mid-route, and the recovery fires 1.3&ndash;3.3 times per mission. The robot still docks
+        within 4&nbsp;mm lateral, because the dock marker and its wall fix the full pose at the pre-dock pose, and back
+        off corrects what remains.</li>
+      <li><b>Nominal EKF max 224&nbsp;mm.</b> In one trial the estimate drifted before the dock marker was first seen,
+        then was corrected. That trial still docked.</li>
+    </ul>
+
+    <h2 class="title is-3">6. Explore mission against the route baseline</h2>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th></th><th>Route mission (12 scenarios)</th><th>Explore mission (13 scenarios)</th></tr></thead>
+        <tbody>
+          <tr><td>Successful</td><td>107/120</td><td><b>130/130</b></td></tr>
+          <tr><td>Knows in advance</td><td>start pose, all 5 markers, fixed route</td><td>only the dock's offset from one marker</td></tr>
+          <tr><td>Nominal time</td><td>40s</td><td>47s (including about 5&nbsp;s to localise and look)</td></tr>
+          <tr><td>push / push_docking</td><td>10/10 / 0/10</td><td>10/10 / 10/10</td></tr>
+          <tr><td>odometry_x3 / combined</td><td>9/10 / 8/10</td><td>10/10 / 10/10</td></tr>
+          <tr><td>Obstacles</td><td>10/10 (local detour on a fixed route)</td><td>10/10 on the way, 10/10 appearing (replanning)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The explore mission knows less but is more robust, because of three things the route mission does not have: the
+      wall-line heading (full pose from one marker), the dock back-off, and replanning on its own LiDAR map.
+    </p>
+    <p>
+      <b>A measured trade-off in the route mission:</b> The spline controller scored 107/120, against 110/120 for straight
+      segments on the same route and seeds. All three extra failures were docking off target after bad odometry or a
+      push. The spline reaches the pre-dock pose about 10&nbsp;s sooner and turns less on the spot, so it collects about a
+      third fewer wall-marker updates (210 against 309) and has less time to re-converge. At 10 trials per scenario a
+      3-trial difference is within trial-to-trial variation but the mechanism is consistent with the logged data.
+    </p>
+    <figure class="fig">
+      <img src="./static/figures/robustness_lqr.png" alt="Route mission robustness by scenario">
+      <figcaption>Route-mission baseline (spline controller): success, docking errors, estimation error and time by
+        scenario. The push-while-docking failures sit outside the success box.</figcaption>
+    </figure>
+
+    <div class="callout beyond">
+      <div class="callout-title">Beyond the assignment brief</div>
+      <ul>
+        <li>A robustness study of 250 full missions (130 explore and 120 route), repeatable by seed, with automatic
+          failure diagnosis. Development of this study was assisted with Generative AI.</li>
+        <li>Every failure traced to a cause across modules and the fixes measured on the same seeds.</li>
+        <li>Two missions and two controllers compared under identical disturbances.</li>
+      </ul>
+    </div>
+
+    <div class="callout limits">
+      <div class="callout-title">What these results do and do not support</div>
+      <ul>
+        <li><b>10 trials per scenario.</b> A 10/10 result means the true success rate is likely above about 70% (95%
+          binomial interval) but does not mean that the system never fails. Differences of 1&ndash;3 trials are indicative only.</li>
+        <li>Disturbances are simulated: a push is a 0.2&nbsp;s force and odometry error is a radius scale plus random
+          slip. Real slip, lighting, motion blur and camera latency were not tested, and neither were moving obstacles
+          or a wrong marker map in simulation.</li>
+        <li>All of this is one room and one marker layout. The wall-line yaw needs the reference marker on a straight
+          wall, and an error in the measured dock offset moves the pre-dock pose by the same amount.</li>
+      </ul>
+    </div>
+
+    <div class="page-nav">
+      <a class="button is-light" href="./control.html">&larr; D Control</a>
+      <a class="button is-light" href="./hardware.html">Hardware &rarr;</a>
+    </div>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container content has-text-centered is-size-7">
+    <p>41014 Sensors and Control for Mechatronic Systems, UTS, Spring 2026. Numbers from
+      <a href="https://github.com/kajakatovcic/41014_SPR26_Project/tree/main/findings"><code>findings/</code></a>.</p>
+    <p>Adapted from the <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> template, licensed
+      <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>

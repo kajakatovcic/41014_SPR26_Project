@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 265" font-family="Helvetica, Arial, sans-serif" font-size="12">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker>
+    <marker id="ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#999"/></marker>
+  </defs>
+  <rect width="900" height="265" fill="#ffffff"/>
+
+  <g text-anchor="middle">
+    <rect x="15" y="70" width="135" height="70" rx="8" fill="#eef1f6" stroke="#5b6b8c"/>
+    <text x="82" y="96" font-weight="bold" font-size="13">MuJoCo world</text>
+    <text x="82" y="114">Waffle Pi, room,</text>
+    <text x="82" y="129">obstacles, markers</text>
+
+    <rect x="172" y="70" width="166" height="70" rx="8" fill="#eef1f6" stroke="#5b6b8c"/>
+    <text x="255" y="96" font-weight="bold" font-size="13">Sensor drivers</text>
+    <text x="255" y="114">encoders 20 Hz, camera</text>
+    <text x="255" y="129">10 Hz, LiDAR 5 Hz (noisy)</text>
+
+    <rect x="360" y="70" width="152" height="70" rx="8" fill="#eaf5ee" stroke="#3d7d55"/>
+    <text x="436" y="96" font-weight="bold" font-size="13">Perception</text>
+    <text x="436" y="114">ArUco range, bearing, R</text>
+    <text x="436" y="129">RANSAC walls, DBSCAN</text>
+
+    <rect x="534" y="70" width="139" height="70" rx="8" fill="#eaf5ee" stroke="#3d7d55"/>
+    <text x="603" y="96" font-weight="bold" font-size="13">Estimator</text>
+    <text x="603" y="114">EKF / MarkerSLAM</text>
+    <text x="603" y="129">x&#770;, P in {A}</text>
+
+    <rect x="695" y="70" width="190" height="70" rx="8" fill="#eaf5ee" stroke="#3d7d55"/>
+    <text x="790" y="96" font-weight="bold" font-size="13">Navigator + controller</text>
+    <text x="790" y="114">LiDAR grid, A*, spline, LQR</text>
+    <text x="790" y="129">turn, PBVS docking</text>
+  </g>
+
+  <line x1="150" y1="105" x2="170" y2="105" stroke="#444" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="338" y1="105" x2="358" y2="105" stroke="#444" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="512" y1="105" x2="532" y2="105" stroke="#444" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="673" y1="105" x2="693" y2="105" stroke="#444" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- sensor data straight to the navigator -->
+  <path d="M436,70 L436,40 L790,40 L790,68" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="613" y="34" text-anchor="middle" fill="#333">LiDAR points (map, safety) and the dock marker in the camera (docking)</text>
+  <!-- odometry to the estimator -->
+  <path d="M255,140 L255,160 L603,160 L603,142" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="429" y="155" text-anchor="middle" fill="#333">encoder odometry (v, &#969;) for the prediction</text>
+  <!-- commands back to the world -->
+  <path d="M790,140 L790,185 L82,185 L82,142" fill="none" stroke="#444" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="436" y="200" text-anchor="middle" fill="#333">(v, &#969;) &#8594; compensated wheel speeds, at 20 Hz</text>
+
+  <!-- ground truth: evaluation only -->
+  <path d="M40,140 L40,237 L118,237" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar-g)"/>
+  <rect x="120" y="220" width="500" height="34" rx="6" fill="#f6f6f6" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="370" y="242" text-anchor="middle" fill="#555">Ground truth &#8594; log only: plots and test scoring, never the estimator or controller</text>
+</svg>

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Criterion D: LiDAR planning, LQR spline tracking, visual docking, tuning and tracking results.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D Control</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="stylesheet" href="./static/css/project.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/index.js"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold" href="./index.html">TurtleBot visual docking</a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item" href="./modelling.html">A&nbsp;Modelling</a>
+      <a class="navbar-item" href="./sensing.html">B&nbsp;Sensing</a>
+      <a class="navbar-item" href="./estimation.html">C&nbsp;Estimation</a>
+      <a class="navbar-item is-active" href="./control.html">D&nbsp;Control</a>
+      <a class="navbar-item" href="./robustness.html">E&nbsp;Robustness</a>
+      <a class="navbar-item" href="./hardware.html">Hardware</a>
+    </div>
+    <div class="navbar-end">
+      <a class="navbar-item" href="https://github.com/kajakatovcic/41014_SPR26_Project">
+        <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <p class="is-size-6 has-text-grey">Criterion D</p>
+      <h1 class="title is-2 publication-title">Control</h1>
+      <p class="is-size-5">Controller design, tuning and tracking results</p>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+
+    <div class="callout tutorial">
+      <div class="callout-title">References to the tutorial material</div>
+      <p>The 2-state error model (Weeks 5 D, 8 B), LQR with <code>ct.dlqr</code> and Bryson's rule (Week 6 A.4,
+        A.5), the Lyapunov heading law (Week 6 B.6), the "drive and turn" placeholder used as a baseline (Week 8 C.4),
+        and position-based visual servoing (PBVS) to an ArUco tag (Week 9 D). The occupancy grid and A* planner are <b>not</b>
+        from the tutorials. They are a researched minimal extension so that the robot can navigate with no map as required for hardware.
+        Code: <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/src/control/control.py"><code>control.py</code></a>,
+        <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/src/control/navigation.py"><code>navigation.py</code></a>,
+        <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/src/control/planning.py"><code>planning.py</code></a>.
+        Evaluated by <code>tests/test_control.py</code> and <code>tests/test_navigation.py</code>.</p>
+    </div>
+
+    <p>Everything on this page runs on the <b>estimated</b> pose and sensor data ONLY.</p>
+
+    <h2 class="title is-3">1. Mission structure</h2>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Mode</th><th>What the robot does</th></tr></thead>
+        <tbody>
+          <tr><td>search</td><td>turns on the spot (0.7&nbsp;rad/s) until the reference marker is in view</td></tr>
+          <tr><td>localise</td><td>stands still for 1&nbsp;s (10 frames) while the estimator initialises (<a href="./estimation.html#slam">C</a>)</td></tr>
+          <tr><td>look</td><td>turns to where the dock marker should be and looks for up to 1.5&nbsp;s. One marker leaves the rotation about it unobservable. A second fixes it.</td></tr>
+          <tr><td>plan</td><td>plans to the pre-dock pose (0.75&nbsp;m out on the dock marker's normal) on its own LiDAR map</td></tr>
+          <tr><td>turn/track</td><td>a Lyapunov turn on the spot when needed, then LQR path following along the spline</td></tr>
+          <tr><td>dock</td><td>Week 9 visual servoing on the dock marker</td></tr>
+          <tr><td>find</td><td>the dock marker has not been seen for 3&nbsp;s at the pre-dock pose. Turn until it is seen, hold 1&nbsp;s while the EKF corrects, and then replan</td></tr>
+          <tr><td>back off</td><td>the estimate puts the robot more than 4&nbsp;cm off the dock normal while docking (for example after a push): reverse to 1.15&nbsp;m, replan and dock again (at most 3 times)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="title is-3">2. Planning on the robot's own LiDAR map</h2>
+    <ul>
+      <li><b>Grid:</b> log-odds occupancy in {A}, 5&nbsp;cm cells. Each return adds +0.85 to its cell, and the cells
+        along the beam &minus;0.4 (limits &minus;2 and +3.5; occupied above 0.5). It is placed using the estimated
+        pose and restarted if a correction moves the estimate more than 5&nbsp;cm in one step, because a map drawn
+        from a wrong pose leaves ghost walls.</li>
+      <li><b>A*</b> (8-connected): cells within 0.30&nbsp;m (robot radius + 5&nbsp;cm) of an occupied cell are blocked,
+        and cells within 0.6&nbsp;m cost up to 3&times; more so paths keep to open space. Unknown cells count as free,
+        so the robot plans optimistically and replans as it sees more.</li>
+      <li><b>Path to spline:</b> A* goes to a point 0.3&nbsp;m back along the dock normal, and the last 0.3&nbsp;m is
+        straight, so the robot arrives lined up. The path is shortened by line of sight and then splined. The spline must
+        keep 0.28&nbsp;m clear of every return and have curvature no tighter than 15&nbsp;/m. Otherwise the planner
+        takes fewer shortcuts and as a last resort uses straight legs with turns on the spot.</li>
+      <li><b>Replanning</b> happens on each LiDAR scan (5&nbsp;Hz), but only when the path ahead is now closer to a
+        return than when it was planned. The planner also replans when the estimate is more than 0.15&nbsp;m off the path 
+        or when the safety corridor has stopped the robot for 0.5&nbsp;s.</li>
+    </ul>
+
+    <h2 class="title is-3" id="lqr">3. LQR path following</h2>
+    <p>
+      On the 2-state cross-track/heading model (<a href="./modelling.html">A</a>), discretised by zero-order hold at
+      T = 0.05&nbsp;s:
+    </p>
+    \[ \dot e_y = v\,e_\theta, \qquad \dot e_\theta = \omega - \omega_r, \qquad
+       \omega = v\kappa - K(v)\begin{bmatrix} e_y \\ e_\theta \end{bmatrix}. \]
+    <ul>
+      <li><b>Feed-forward</b> \(v\kappa\) from the spline's curvature so curves are driven rather than corrected.</li>
+      <li><b>Bryson's rule</b> (Week 6 A.5): e<sub>y</sub> max 50&nbsp;mm, e<sub>&theta;</sub> max 10&deg;, steering
+        effort max 0.5&nbsp;rad/s, giving Q = diag(400.0, 32.8) and R = 4.0.</li>
+      <li><b>Gain-scheduled on speed:</b> v appears inside A (Week 5 D) so K is computed with <code>ct.dlqr</code>
+        for the speed being driven and cached per cm/s.</li>
+      <li><b>Speed:</b> v = min(0.15, 0.8/&kappa;<sub>max</sub>, max(0.04, 0.6 &times; distance to the end or the next
+        corner)). 0.15&nbsp;m/s is 66% of the 0.227&nbsp;m/s top speed, which leaves headroom for steering;
+        &kappa;<sub>max</sub> is the largest curvature in the next 0.2&nbsp;m.</li>
+      <li><b>Turn on the spot</b> whenever |e<sub>&theta;</sub>| &gt; 30&deg;, outside the linear model's range. It
+        uses the Lyapunov law \(\omega = -k e_\theta\) with k = 1.5: V = e&sup2;/2 gives \(\dot V = -k e^2 &lt; 0\),
+        and it exits below 3&deg;.</li>
+      <li><b>LiDAR safety:</b> v = &omega; = 0 if any return lies in a 0.41&nbsp;m-wide corridor out to 0.29&nbsp;m
+        ahead.</li>
+    </ul>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>v [m/s]</th><th>K (e<sub>y</sub>, e<sub>&theta;</sub>)</th><th>closed-loop |z|</th><th>time constants [s]</th><th>damping</th></tr></thead>
+        <tbody>
+          <tr><td>0.04</td><td>(9.28, 2.79)</td><td>(0.993, 0.867)</td><td>(7.15, 0.35)</td><td>1.0</td></tr>
+          <tr><td>0.08</td><td>(9.25, 2.92)</td><td>(0.986, 0.867)</td><td>(3.56, 0.35)</td><td>1.0</td></tr>
+          <tr><td>0.15</td><td>(9.20, 3.11)</td><td>(0.974, 0.869)</td><td>(1.88, 0.36)</td><td>1.0</td></tr>
+          <tr><td>0.20</td><td>(9.16, 3.25)</td><td>(0.965, 0.871)</td><td>(1.39, 0.36)</td><td>1.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The loop is stable at every speed, and both poles are real, meaning there is no overshoot. The slow, cross-track mode's
+      time constant scales with 1/v - the robot can only correct a lateral error by driving, which is the nonholonomic
+      constraint again. The fast heading mode (about 0.35&nbsp;s) barely depends on speed. Both are well above the
+      wheels' 0.11&nbsp;s lag.
+    </p>
+
+    <h3 class="title is-4" id="tradeoff">Tuning: the trade-off curve, and the neglected lag</h3>
+    <p>v = 0.15&nbsp;m/s, starting 100&nbsp;mm off the path; "nonlinear + lag" adds the 0.11&nbsp;s wheel lag to the unicycle.</p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>R scale</th><th>State cost</th><th>Input cost</th><th>Peak &omega;</th><th>Settle to 5 mm</th><th>With the lag</th></tr></thead>
+        <tbody>
+          <tr><td>0.01</td><td>157.1</td><td>111.04</td><td>5.07 rad/s</td><td>5.80 s</td><td>5.95 s</td></tr>
+          <tr><td>0.1</td><td>159.5</td><td>40.71</td><td>2.49 rad/s</td><td>5.85 s</td><td>5.95 s</td></tr>
+          <tr><td><b>1 (used)</b></td><td>168.7</td><td>11.91</td><td>0.92 rad/s</td><td>6.05 s</td><td>6.10 s</td></tr>
+          <tr><td>10</td><td>196.3</td><td>3.01</td><td>0.31 rad/s</td><td>6.55 s</td><td>6.55 s</td></tr>
+          <tr><td>100</td><td>267.0</td><td>0.65</td><td>0.10 rad/s</td><td>8.75 s</td><td>8.65 s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <b>The reason for Bryson's choice:</b> A 100&times; more aggressive controller cuts settling only from 6.05 to
+      5.80&nbsp;sec, but multiplies the peak steering command 5.5&times;, to 5.07&nbsp;rad/s. That is beyond the
+      1.58&nbsp;rad/s that the wheels can deliver. Cross-track recovery is limited by forward speed, not steering effort.
+      Every design settles within 0.15&nbsp;s of the linear prediction with the lag included so leaving the lag out
+      of the model is justified.
+    </p>
+    <figure class="fig">
+      <img src="./static/figures/control.png" alt="LQR trade-off curve, recovery from an offset, mission paths, docking from offset starts">
+      <figcaption><code>tests/test_control.py</code>. Top: the LQR trade-off curve, and recovery from 100&nbsp;mm off
+        the path, linear against nonlinear with the lag. Bottom left: true paths of the route missions for the spline,
+        straight segments and the placeholder. Bottom right: docking from offset starts.</figcaption>
+    </figure>
+
+    <h2 class="title is-3" id="docking">4. Visual docking (Week 9 D3)</h2>
+    <p>At the pre-dock pose the robot turns to face the station, then steers on the <b>camera's</b> view of the dock marker (not the EKF):</p>
+    \[ v = \lambda_v (z_M - d^*), \qquad \omega = -\lambda_\omega \operatorname{atan2}(x_M, z_M), \qquad
+       \lambda_v = 0.5,\ \lambda_\omega = 1.5,\ d^* = 0.25\ \text{m}. \]
+    <p>
+      Here x<sub>M</sub> and z<sub>M</sub> are the marker's lateral offset and depth in the camera frame. v is clipped
+      to [&minus;0.05, 0.1]&nbsp;m/s and &omega; to &plusmn;0.8&nbsp;rad/s. d* is set by geometry - the marker can only
+      be decoded while its 0.2&nbsp;m plate fits in the 480&nbsp;px image height, Z &ge; 0.2 &times; 530/480 =
+      0.22&nbsp;m. The robot counts as docked within 10&nbsp;mm in both depth and lateral offset.
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Start offset from the pre-dock pose</th><th>Docked</th><th>Time</th><th>Distance</th><th>Lateral</th><th>Heading</th></tr></thead>
+        <tbody>
+          <tr><td>none</td><td>yes</td><td>8.8 s</td><td>9 mm</td><td>0 mm</td><td>0.0&deg;</td></tr>
+          <tr><td>y +100 mm</td><td>yes</td><td>8.8 s</td><td>6 mm</td><td>49 mm</td><td>&minus;8.2&deg;</td></tr>
+          <tr><td>y +200 mm</td><td>yes</td><td>9.1 s</td><td>&minus;4 mm</td><td>95 mm</td><td>&minus;16.0&deg;</td></tr>
+          <tr><td>&theta; +17&deg;</td><td>yes</td><td>9.9 s</td><td>9 mm</td><td>1 mm</td><td>&minus;0.1&deg;</td></tr>
+          <tr><td>y +150 mm, &theta; &minus;17&deg;</td><td>yes</td><td>10.0 s</td><td>2 mm</td><td>72 mm</td><td>&minus;12.0&deg;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      A rotated start docks perfectly. A start off the normal docks facing the marker, but about half the offset
+      remains sideways, with about 8&deg; of skew per 100&nbsp;mm. This matches the Week 9 D3 prediction: the law
+      regulates only range and bearing and a unicycle cannot move sideways. The full mission still docks within
+      millimetres because the LQR tracker, steering on the EKF estimate, delivers the robot to the pre-dock pose
+      <i>on</i> the normal. Docking accuracy is therefore set by estimation plus tracking error at that point. That is
+      why the explore mission adds <b>back off</b> when the estimate shows the robot pushed off the normal.
+    </p>
+
+    <h2 class="title is-3">5. Tracking results</h2>
+    <h3 class="title is-4">Explore mission: 10 random starts (same seeds for both)</h3>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th></th><th>Spline paths (default)</th><th>Straight segments</th></tr></thead>
+        <tbody>
+          <tr><td>Successful; collisions</td><td>10/10; 0</td><td>10/10; 0</td></tr>
+          <tr><td>Mission time</td><td>44.1s</td><td>47.3s</td></tr>
+          <tr><td>EKF RMS / worst</td><td>6/29 mm</td><td>5/26mm</td></tr>
+          <tr><td>Closest approach beyond 0.25m</td><td>5.8cm (per-mission minimum, mean 9.2cm)</td><td>3.0cm (mean 7.4cm)</td></tr>
+          <tr><td>Docking |error|</td><td>9.8mm, <b>0.8mm lateral</b>, 0.1&deg;</td><td>9.6mm, 3.3mm lateral, 0.6&deg;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The spline is 3&nbsp;s faster (no stopping to turn at corners), keeps further from obstacles, and arrives along
+      the dock normal with a smaller lateral error.
+    </p>
+    <figure class="fig">
+      <img src="./static/figures/navigation.png" alt="One-marker localisation, true paths from 10 random starts, docking errors">
+      <figcaption><code>tests/test_navigation.py</code>. Left: initial heading error from one marker, PnP against the
+        wall line. Middle: true paths from every random start (all docked). Right: docking errors for spline and
+        straight segments inside the 30&nbsp;mm success box.</figcaption>
+    </figure>
+
+    <h3 class="title is-4">Route mission: tracking quality (3 trials, EKF in the loop)</h3>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Controller</th><th>Time</th><th>Path RMS / max</th><th>&omega; RMS</th><th>d&omega;/dt RMS</th><th>Docking</th></tr></thead>
+        <tbody>
+          <tr><td><b>spline LQR + dock</b></td><td>39.9s</td><td><b>1.8/4mm</b></td><td>0.12rad/s</td><td><b>0.26rad/s&sup2;</b></td><td>10mm, 0mm, &le; 0.1&deg;</td></tr>
+          <tr><td>straight-segment LQR + dock</td><td>49.9s</td><td>4.1/17mm</td><td>0.20rad/s</td><td>1.47rad/s&sup2;</td><td>10mm, 1&ndash;2mm, 0.2&ndash;0.3&deg;</td></tr>
+          <tr><td>Week 8 C.4 placeholder</td><td>31.2 s</td><td>14.1/51mm</td><td>0.22rad/s</td><td>1.40rad/s&sup2;</td><td>does not dock</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The spline tracks 8&times; tighter than the placeholder and 2.3&times; tighter than straight segments, is 5.7&times;
+      smoother in d&omega;/dt, and saves 10&nbsp;s. Path error is the true distance from the planned path while
+      tracking, so it uses ground truth (for evaluation only).
+    </p>
+
+    <h2 class="title is-3" id="merge">6. Team Integration </h2>
+    <p>
+      Anthony used a cubic-spline trajectory with curvature feed-forward, a route with a clearance check,
+      and a 3-state LQR tracker on a timed reference. We compared both his and Kaja's straight-line before merging:
+    </p>
+    <ul>
+      <li><b>Merged:</b> The spline geometry and feed-forward (<code>src/control/trajectory.py</code>), the route, and
+        the clearance check.</li>
+      <li><b>Not used:</b> The timed reference and its tracker. A timed reference keeps moving while the LiDAR has
+        stopped the robot, so the tracking error grows without bound, and it cannot be replanned. In a pre-merge
+        robustness run it failed 10/10 unexpected-obstacle trials. It was also discretised by forward Euler, which
+        pushes a turning reference's eigenvalues outside the unit circle (<a href="./modelling.html">A, section
+        6</a>), and it assumed a 0.26&nbsp;m/s top speed instead of 0.227&nbsp;m/s.</li>
+      <li><b>Bugs found while merging (now fixed):</b> overshooting sharp straight-leg corners and rejoining after a
+        detour cutting into known obstacles.</li>
+    </ul>
+
+    <div class="callout beyond">
+      <div class="callout-title">Extensions beyond the tutorial material</div>
+      <ul>
+        <li>A LiDAR occupancy grid with A* and replanning, so the robot navigates with no map. It is a minimal
+          extension.</li>
+        <li><b> A* on the LiDAR occupancy grid:</b> This is not in the tutorials. 8-connected search on 5&nbsp;cm cells
+        with a clearance-based cost (blocked within 0.30&nbsp;m of a return, up to 3&times; dearer out to 0.6&nbsp;m) and
+        an admissible straight-line heuristic, so the path is the cheapest on the grid and keeps to open space.
+        Unknown space is treeated as free and the robot replans as it sees more. The result is shortened and splined for the
+        LQR tracker.</li>
+        <li>Gain scheduling on speed, curvature feed-forward and a curvature-limited speed law, justified by a
+          trade-off curve and a check to ensure that  the neglected lag does not matter.</li>
+        <li>The docking law's lateral limit predicted, measured, and handled at the mission level (back off), which
+          took push-during-docking from 0/10 to 10/10 (<a href="./robustness.html">E</a>).</li>
+        <li>Three controllers compared on the same seeds, and merged made on measured evidence.</li>
+      </ul>
+    </div>
+
+    <div class="callout limits">
+      <div class="callout-title">What these results do and do not support</div>
+      <ul>
+        <li>Docking stops about 10&nbsp;mm short every time, because it stops as soon as the camera reads
+          |z<sub>M</sub> &minus; d*| &lt; 10&nbsp;mm while approaching from outside. A tighter tolerance trades this
+          against time, since the approach slows exponentially with a time constant 1/&lambda;<sub>v</sub> = 2&nbsp;s.</li>
+        <li>The planner treats the robot as a 0.25&nbsp;m circle on a 5&nbsp;cm grid. It is untested with moving
+          obstacles, gaps under 0.6&nbsp;m, mazes, or rooms larger than its 9&times;9&nbsp;m grid. An obstacle dropped
+          right next to the pre-dock pose made it replan about 100 times before docking.</li>
+        <li>The faster spline mission collects fewer marker updates than straight segments, which is a measured
+          trade-off against estimation margin (<a href="./robustness.html">E</a>).</li>
+      </ul>
+    </div>
+
+    <div class="page-nav">
+      <a class="button is-light" href="./estimation.html">&larr; C Estimation</a>
+      <a class="button is-light" href="./robustness.html">E Robustness &rarr;</a>
+    </div>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container content has-text-centered is-size-7">
+    <p>41014 Sensors and Control for Mechatronic Systems, UTS, Spring 2026. Numbers from
+      <a href="https://github.com/kajakatovcic/41014_SPR26_Project/tree/main/findings"><code>findings/</code></a>.</p>
+    <p>Adapted from the <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> template, licensed
+      <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>

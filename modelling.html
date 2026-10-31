@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Criterion A: the TurtleBot3 Waffle Pi's state-space model, actuator model, controllability and observability.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A Modelling</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="stylesheet" href="./static/css/project.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/index.js"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold" href="./index.html">TurtleBot visual docking</a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item is-active" href="./modelling.html">A&nbsp;Modelling</a>
+      <a class="navbar-item" href="./sensing.html">B&nbsp;Sensing</a>
+      <a class="navbar-item" href="./estimation.html">C&nbsp;Estimation</a>
+      <a class="navbar-item" href="./control.html">D&nbsp;Control</a>
+      <a class="navbar-item" href="./robustness.html">E&nbsp;Robustness</a>
+      <a class="navbar-item" href="./hardware.html">Hardware</a>
+    </div>
+    <div class="navbar-end">
+      <a class="navbar-item" href="https://github.com/kajakatovcic/41014_SPR26_Project">
+        <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <p class="is-size-6 has-text-grey">Criterion A</p>
+      <h1 class="title is-2 publication-title">Modelling</h1>
+      <p class="is-size-5">State-space model, controllability and observability of the Waffle Pi</p>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+
+    <div class="callout tutorial">
+      <div class="callout-title">References to Tutorial</div>
+      <p>Unicycle and tracking-error models (Week 5 D), controllability (Week 5 D1), discretisation (Week 5 C5), the
+        exact-arc discrete model and its Jacobian (Week 7 C.4), the 2-state cross-track model (Week 8 B).
+        Code: <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/src/control/model.py"><code>src/control/model.py</code></a>;
+        evaluated by <code>python tests/test_model.py</code>.</p>
+    </div>
+
+    <h2 class="title is-3">1. Platform and kinematics</h2>
+    <p>
+      Waffle Pi: wheel radius \(r = 0.033\) m, track \(b = 0.288\) m, actuator limit 7.88 rad/s, encoders at
+      4096 ticks/rev. With wheel speeds \(\omega_l, \omega_r\):
+    </p>
+    \[ v = \frac{r(\omega_r + \omega_l)}{2}, \qquad \omega = \frac{r(\omega_r - \omega_l)}{b}. \]
+    <p>
+      A command that would exceed the usable wheel speed scales both wheels down together, which keeps the path
+      curvature the controller asked for.
+    </p>
+
+    <h3 class="title is-4">Modelling error found in the robot model itself</h3>
+    <p>
+      Before any model could match the robot, we found a bug in the ROBOTIS MuJoCo model: the chassis collision mesh
+      includes the ball casters. Its convex hull touched the floor where the casters do, but with friction 1.0, and it
+      carried 6.4&nbsp;N of the robot's weight. MuJoCo also uses the <i>larger</i> friction of two touching geoms meaning
+      the casters got the floor's friction too.
+    </p>
+    <p>
+      The effect: commanding 0.15&nbsp;m/s gave 0.071&nbsp;m/s, and the robot could not turn on the spot at all
+      (0.001&nbsp;rad/s for 0.5 commanded). The encoders overstated the motion so dead reckoning was also wrong.
+      After giving the casters and chassis the casters' contact properties, with a higher contact priority, the
+      encoders match ground truth: 0.117 against 0.116&nbsp;m/s, and 0.281 against 0.279&nbsp;rad/s.
+    </p>
+
+    <h2 class="title is-3">2. Wheel actuator model - derived and measured</h2>
+    <p>
+      Each wheel is a MuJoCo velocity servo (torque \(= k_v(\omega_{cmd} - \omega)\)) with Coulomb joint friction and
+      armature. Two parameters can be derived from the model file and both were then measured on the simulated robot:
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-fullwidth">
+        <thead><tr><th>Quantity</th><th>Derived</th><th>Measured</th></tr></thead>
+        <tbody>
+          <tr><td>Deadband: each wheel turns this much slower than commanded and not below it</td><td>frictionloss / k<sub>v</sub> = 0.1 / 0.1 = 1.0 rad/s</td><td>1.001&ndash;1.016 rad/s (mean 1.008)</td></tr>
+          <tr><td>Time constant</td><td>J / k<sub>v</sub>, J = 0.0110 kg&nbsp;m&sup2; (armature + wheel + m r&sup2;/2) &rarr; 0.110 s</td><td>0.108 s</td></tr>
+          <tr><td>Turning resistance (identified NOT derived)</td><td>&ndash;</td><td>0.020 &plusmn; 0.001rad/s shortfall at every turn rate from 0.2 to 1.4 rad/s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The turning resistance is Coulomb-like. The same shortfall is seen whether the robot spins or arcs. It is most likely
+      tyre scrub across the tread. The usable wheel speed is therefore 6.88rad/s. This is a top speed of
+      <b>0.227m/s</b> (not the 0.26m/s the actuator limit suggests) and 1.58rad/s turning on the spot.
+      <code>unicycle_to_wheels()</code> compensates with +1.0rad/s per wheel and +0.02rad/s of turn rate in the
+      direction of motion.
+    </p>
+
+    <h2 class="title is-3">3. State-space models</h2>
+    <p><b>Unicycle</b> (Week 5 D), state \(\mathbf{x} = (x, y, \theta)\), input \(\mathbf{u} = (v, \omega)\):</p>
+    \[ \dot x = v\cos\theta, \qquad \dot y = v \sin\theta, \qquad \dot\theta = \omega. \]
+    <p>
+      The EKF uses the exact-arc discrete form and its Jacobian \(F\) (Week 7 C.4). \(F\) matches a numerical
+      Jacobian to \(1.4\times10^{-10}\).
+    </p>
+    <p>
+      <b>Tracking error</b> in the reference frame about a reference moving at \((v_r, \omega_r)\), with
+      \(\mathbf{e} = (e_x, e_y, e_\theta)\):
+    </p>
+    \[ \dot e_x = v\cos e_\theta - v_r + \omega_r e_y, \qquad \dot e_y = v \sin e_\theta - \omega_r e_x, \qquad \dot e_\theta = \omega - \omega_r \]
+    <p>Linearised about \(\mathbf{e} = 0\), with \(\delta\mathbf{u} = (v - v_r,\ \omega - \omega_r)\):</p>
+    \[ A = \begin{bmatrix} 0 & \omega_r & 0 \\ -\omega_r & 0 & v_r \\ 0 & 0 & 0 \end{bmatrix}, \qquad
+       B = \begin{bmatrix} 1 & 0 \\ 0 & 0 \\ 0 & 1 \end{bmatrix}. \]
+    <p>
+      The <b>2-state model</b> the LQR tracker uses (Weeks 5 D, 8 B) is the \((e_y, e_\theta)\) block when speed is
+      not controlled:
+    </p>
+    \[ A = \begin{bmatrix} 0 & v_r \\ 0 & 0 \end{bmatrix}, \qquad B = \begin{bmatrix} 0 \\ 1 \end{bmatrix}. \]
+    <p>
+      The \(\omega_r\) term enters as the curvature feed-forward \(\omega_r = v\kappa\). Sign convention:
+      \(e = \) actual \(-\) reference (Week 8 writes \(\theta_d - \theta\)). The Jacobians were checked against sympy,
+      and the error kinematics against the simulated unicycle.
+    </p>
+
+    <h2 class="title is-3">4. Controllability (Week 5 D1)</h2>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>v<sub>r</sub> [m/s]</th><th>&omega;<sub>r</sub> [rad/s]</th><th>3-state rank</th><th>min singular value</th><th>2-state rank</th><th>det</th></tr></thead>
+        <tbody>
+          <tr><td>0.20</td><td>0</td><td>3</td><td>0.200</td><td>2</td><td>&minus;0.200</td></tr>
+          <tr><td>0.10</td><td>0</td><td>3</td><td>0.100</td><td>2</td><td>&minus;0.100</td></tr>
+          <tr><td>0.02</td><td>0</td><td>3</td><td>0.020</td><td>2</td><td>&minus;0.020</td></tr>
+          <tr><td>0</td><td>0</td><td>2</td><td>0.000</td><td>1</td><td>0.000</td></tr>
+          <tr><td>0.15</td><td>0.40</td><td>3</td><td>0.427</td><td>2</td><td>&minus;0.150</td></tr>
+          <tr><td>0</td><td>0.80</td><td>3</td><td>0.800</td><td>1</td><td>0.000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The model has full rank whenever the reference moves and loses rank at rest. That is the nonholonomic
+      constraint - the robot cannot correct a sideways error without driving. Slow tracking is only weakly
+      controllable as controllability also weakens in proportion to speed. This appears again in <a href="./control.html">D</a>,
+      where the cross-track time conststant scales with 1/v, and in docking, which cannot remove a lateral
+      offset.
+    </p>
+
+    <h2 class="title is-3">5. Observability of the pose</h2>
+    <p>
+      <b>Method:</b> local observability of the linearised time-varying system over 10 camera frames (1&nbsp;s),
+      \(\mathcal{O} = [W H_0;\ W H_1 F_0;\ \dots]\). It is weighted by the perception noise model
+      (\(W = R^{-1/2}\)), so the singular values are in standard deviations per unit of state error. Test pose
+      (&minus;1.4, 0.2, 270&deg;), with markers 1 and 3 in view. "moving" means (0.15&nbsp;m/s, 0.2&nbsp;rad/s).
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Sensors</th><th>Still: rank, singular values</th><th>Moving: rank, singular values</th></tr></thead>
+        <tbody>
+          <tr><td>encoders only</td><td>0 &nbsp;[0, 0, 0]</td><td>0 &nbsp;[0, 0, 0]</td></tr>
+          <tr><td>1 marker, range + bearing</td><td>2 &nbsp;[7136, 431, 0]</td><td>2 &nbsp;[7513, 493, 0]</td></tr>
+          <tr><td>1 marker, range only</td><td>1 &nbsp;[431, 0, 0]</td><td>2 &nbsp;[479, 17, 0]</td></tr>
+          <tr><td>1 marker, bearing only</td><td>1 &nbsp;[7136, 0, 0]</td><td>2 &nbsp;[7513, 116, 0]</td></tr>
+          <tr><td>1 marker, then another</td><td>3 &nbsp;[6285, 1739, 244]</td><td>3 &nbsp;[6474, 1839, 255]</td></tr>
+          <tr><td>2 markers at once</td><td>3 &nbsp;[8889, 2459, 346]</td><td>3 &nbsp;[9254, 2636, 386]</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><b>Encoders observe nothing</b> as they are inputs to the motion model, not measurements of the pose. This means
+         dead reckoning drifts without bound.</li>
+      <li><b>One marker never makes the full pose observable even while moving.</b> Rotating the robot and its whole
+        path about the marker changes no range or bearing measurement. Heading becomes observable through motion with
+        GPS fixes as discussed in week 8. </li>
+      <li><b>Two markers make the full pose observable</b> whether seen at once or one after the other with odometry
+        linking them.</li>
+      <li>Bearing carries far more information than range- singular values of about 7000 against about 430 for the
+        same marker.</li>
+    </ul>
+    <p>
+      Over a room coverage map (0.1&nbsp;m grid &times; 24 headings, 22,848 free poses), 60% of poses see no marker,
+      38% see one, and only 2% see two or more. The EKF therefore mostly corrects from markers seen one after another,
+      with drift growing in between.
+    </p>
+    <p>
+      This result drove two design decisions. It is why there are wall landmarks besides the dock marker and, in
+      the explore mission, it is why we added a <a href="./estimation.html#wall">LiDAR wall-line heading
+      measurement</a>. One marker plus the wall it hangs on observes the full pose.
+    </p>
+
+    <h2 class="title is-3">6. Discretisation at T = 0.05sec (Week 5 C5)</h2>
+    <ul>
+      <li>2-state model, v<sub>r</sub> = 0.15: zero-order hold gives B<sub>d</sub> = [0.000187, 0.05]<sup>T</sup>;
+        forward Euler gives [0, 0.05]<sup>T</sup>, missing the T&sup2;v<sub>r</sub>/2 term.</li>
+      <li>3-state model, v<sub>r</sub> = 0.15, &omega;<sub>r</sub> = 0.4: zero-order hold keeps the open-loop
+        eigenvalues on the unit circle (max |z| = 1.000000). Forward Euler pushes them outside (1.000200), an
+        artificial instability for turning references. This is the reason a forward-Euler 3-state tracker was not
+        used (<a href="./control.html#merge">D</a>).</li>
+      <li>T = 0.05&nbsp;s is under half the wheel time constant (0.11&nbsp;s) and twice the camera rate.</li>
+    </ul>
+
+    <h2 class="title is-3">7. Does the robot agree with the model? </h2>
+    <p>Command sequence (v, &omega;) for (seconds): (0.15, 0) 3; (0.15, 0.4) 4; (0, 0.8) 3; (0.12, &minus;0.3) 4; (0.2, 0) 2. Path about 1.9&nbsp;m, 16&nbsp;sec.</p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Wheel commands</th><th>Prediction</th><th>Final position error</th><th>Final heading error</th></tr></thead>
+        <tbody>
+          <tr><td>raw</td><td>ideal unicycle</td><td>396mm</td><td>43.1&deg;</td></tr>
+          <tr><td>raw</td><td>unicycle + actuator model</td><td>3mm</td><td>0.5&deg;</td></tr>
+          <tr><td>compensated</td><td>ideal unicycle</td><td>25mm</td><td>0.2&deg;</td></tr>
+          <tr><td>compensated</td><td>unicycle + actuator model</td><td>5mm</td><td>0.3&deg;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The actuator model is an almost exact description of the robot. With compensated commands, the plain unicycle is good to
+      about 25&nbsp;mm over 16&nbsp;s. The remaining error is the 0.11&nbsp;s lag at command changes, so the controller
+      can use the simple model.
+    </p>
+
+    <figure class="fig">
+      <img src="./static/figures/model.png" alt="Controllability against speed, marker coverage map, wheel step responses, model against the robot">
+      <figcaption><code>tests/test_model.py</code>. Top left: controllability against speed. Top right: where in the
+        room the camera can correct the EKF (% of headings with a marker in view). Bottom left: wheel step responses
+        against the deadband + lag model (dashed). Bottom right: the model vs the MuJoCo robot.</figcaption>
+    </figure>
+
+    <h2 class="title is-3">8. Assumptions</h2>
+    <ul>
+      <li>Flat floor: no longitudinal wheel slip (holds after the caster fix, where the encoders equal ground truth).
+        Slip and wheel-radius errors are then added deliberately for the estimator (<a href="./estimation.html">C</a>).</li>
+      <li>Wheel actuators: deadband, first-order lag and constant turning resistance. The lag is neglected in the
+        control model. This is justified in <a href="./control.html#tradeoff">D</a>: the closed-loop time constants
+        are 0.35&nbsp;sec and 1.4&ndash;7&nbsp;sec and every design settles within 0.15&nbsp;sec of the linear prediction
+        with the lag included.</li>
+      <li>Encoders quantised at 4096 ticks/rev; markers at known, fixed positions; camera rigidly mounted.</li>
+    </ul>
+
+    <div class="callout beyond">
+      <div class="callout-title">Beyond the tutorial content</div>
+      <ul>
+        <li>An actuator model <i>derived</i> from the robot model's parameters and then confirmed by measurement.</li>
+        <li>A contact bug found and fixed in the supplied robot model with before-and-after numbers.</li>
+        <li>Observability weighted by the real measurement noise, which turns rank into information, plus a coverage
+          map of where the camera can actually correct the filter.</li>
+        <li>The discretisation comparison used as evidence in a design decision (rejecting a forward-Euler tracker).</li>
+      </ul>
+    </div>
+
+    <div class="callout limits">
+      <div class="callout-title">What these results do and do not support</div>
+      <ul>
+        <li>The observability analysis is local (linearised along a trajectory). It shows which directions the sensors
+          can see and not how quickly the EKF converges.</li>
+        <li>The coverage map uses geometry only (in view, within 3&nbsp;m and 60&deg;, not occluded). Measured
+          detection rates are in <a href="./sensing.html">B</a>.</li>
+        <li>The actuator model is the simulated robot's. The real robot's firmware runs its own wheel speed loops so
+          the deadband compensation is not used on hardware (<a href="./hardware.html">Hardware</a>).</li>
+      </ul>
+    </div>
+
+    <div class="page-nav">
+      <a class="button is-light" href="./index.html">&larr; Overview</a>
+      <a class="button is-light" href="./sensing.html">B Sensing &rarr;</a>
+    </div>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container content has-text-centered is-size-7">
+    <p>41014 Sensors and Control for Mechatronic Systems, UTS, Spring 2026. Numbers from
+      <a href="https://github.com/kajakatovcic/41014_SPR26_Project/tree/main/findings"><code>findings/</code></a>.</p>
+    <p>Adapted from the <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> template, licensed
+      <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Hardware integration: the same explore-mission pipeline on the real TurtleBot3 Waffle Pi through rosbridge, and what had to change.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hardware Integration</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="stylesheet" href="./static/css/project.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold" href="./index.html">TurtleBot visual docking</a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item" href="./modelling.html">A&nbsp;Modelling</a>
+      <a class="navbar-item" href="./sensing.html">B&nbsp;Sensing</a>
+      <a class="navbar-item" href="./estimation.html">C&nbsp;Estimation</a>
+      <a class="navbar-item" href="./control.html">D&nbsp;Control</a>
+      <a class="navbar-item" href="./robustness.html">E&nbsp;Robustness</a>
+      <a class="navbar-item is-active" href="./hardware.html">Hardware</a>
+    </div>
+    <div class="navbar-end">
+      <a class="navbar-item" href="https://github.com/kajakatovcic/41014_SPR26_Project">
+        <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <p class="is-size-6 has-text-grey">High Distinction requirement</p>
+      <h1 class="title is-2 publication-title">Hardware integration</h1>
+      <p class="is-size-5">The same pipeline on the real TurtleBot3 Waffle Pi and what had to change</p>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+
+    <h2 class="title is-3">1. Our approach: change the robot layer, and keep the algorithms the same</h2>
+    <p>
+      <code>hardware_integration/run_hardware.py</code> runs the explore mission on the real robot through rosbridge,
+      using the UTS-RI <a href="https://github.com/UTS-RI/turtlebot_rosbridge">turtlebot_rosbridge</a> API (a
+      read-only git submodule). Perception, estimation and control are the same modules as in simulation:
+    </p>
+    <ul>
+      <li><b>Perception:</b> LiDAR walls and obstacles, and ArUco range and bearing.</li>
+      <li><b>Estimation:</b> <code>MarkerSLAM</code>, localising from the reference marker with the wall-line
+        heading.</li>
+      <li><b>Control:</b> <code>Navigator</code> with the LiDAR grid, A* and spline, LQR path following, Week 9 docking,
+        find and back off.</li>
+    </ul>
+    <p>
+      The only new implementation is the robot layer around them. Robot side: ROS2 Humble,
+      <code>TURTLEBOT3_MODEL=waffle_pi</code>, LDS-01 on <code>/scan</code>, <code>camera_ros</code> at
+      640&times;480, and <code>/joint_states</code>, <code>/odom</code> and <code>/cmd_vel</code>, with rosbridge on
+      port 9090.
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>hw_config.py</code></td><td>the real robot and room: marker size, height and IDs, the measured dock offset, sensor mounts, speed limits, wheel joint names, safety corridor</td></tr>
+          <tr><td><code>robot_io.py</code></td><td>the API's <code>RosbridgeRobot</code> plus an <code>/odom</code> subscription; <code>RobotIO</code> does the conversions below</td></tr>
+          <tr><td><code>run_hardware.py</code></td><td>the mission loop at 20&nbsp;Hz on the wall clock, with dry run, live camera window, video and run log</td></tr>
+          <tr><td><code>check_sensors.py</code></td><td>checks every topic's rate and format, the wheel joint signs, the scan's angle convention, and markers in view</td></tr>
+          <tr><td><code>calibrate_camera.py</code></td><td>Week 3 B/C calibration from the robot's own camera, with lens distortion</td></tr>
+          <tr><td><code>sim_robot.py</code></td><td>the same interface as <code>RosbridgeRobot</code>, backed by MuJoCo and answering in the real robot's message formats, so the whole pipeline can be tested without the robot</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="title is-3">2. Changes made from the simulation code</h2>
+    <h3 class="title is-4">The mission itself</h3>
+    <p>
+      The original "route" mission knew its start pose, the full marker map and a fixed route, however none of these
+      exist on a real robot dropped into a room. We rebuilt it as the <b>explore mission</b>. The robot localises from
+      whichever reference marker it can see, finds the dock from one measured offset, maps obstacles with its LiDAR as it 
+      drives, and replans (<a href="./control.html">D</a>, <a href="./estimation.html#slam">C</a>). The route mission is kept as the
+      baseline for comparison and evidence.
+    </p>
+
+    <h3 class="title is-4">Sensor and actuator interfaces (<code>RobotIO</code>)</h3>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Robot topic</th><th>Simulation</th><th>Hardware: what <code>RobotIO</code> does</th></tr></thead>
+        <tbody>
+          <tr><td><code>/joint_states</code></td><td>encoder model at exactly 20&nbsp;Hz</td><td>measured (v, &omega;) from the wheel angles <i>and</i> the interval between their time stamps (or <code>/odom</code>'s twist with <code>--odom-source odom</code>)</td></tr>
+          <tr><td><code>/scan</code></td><td>360 rangefinders, no return = &infin;</td><td>LDS-01 encodes "no return" as 0; converted to &infin; and resampled onto the project's 360 beams</td></tr>
+          <tr><td>camera</td><td>rendered RGB, pinhole</td><td>compressed BGR, undistorted with the real calibration (full distortion model), converted to RGB</td></tr>
+          <tr><td><code>/cmd_vel</code></td><td>wheel speeds with deadband compensation</td><td>(v, &omega;) clipped to the hardware limits. The firmware runs the wheel speed loops so the MuJoCo deadband compensation is not used.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A watchdog stops the robot if odometry or LiDAR data is more than 0.5&nbsp;s old.</p>
+
+    <h3 class="title is-4">Timing</h3>
+    <ul>
+      <li>In simulation the loop is stepped, but on hardware it must keep up with the wall clock. Processing a LiDAR scan
+        dominates so RANSAC uses 150 hypotheses per wall instead of 500. With about 350 points, and walls holding a
+        large share of them, 150 still finds each wall almost surely, at under a third of the cost. On the simulated
+        stand-in, loops took 21&nbsp;ms on average, 60&nbsp;ms at the 95th percentile and 96&nbsp;ms at worst, against
+        a 50&nbsp;ms budget.</li>
+      <li>The scan and the camera frame are no longer taken at the same instant, and one scan takes 0.2&nbsp;s to
+        sweep. So the wall-line heading update is only used while the robot turns slower than 0.2&nbsp;rad/s.</li>
+    </ul>
+
+    <h3 class="title is-4">Parameters: simulation against the real track</h3>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Parameter</th><th>Simulation</th><th>Real robot</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Marker side</td><td>0.15m</td><td>0.10m</td><td>printed markers</td></tr>
+          <tr><td>Marker centre height</td><td>0.13m</td><td>0.12m</td><td>as mounted</td></tr>
+          <tr><td>Dock offset in {A}</td><td>(3.79, 1.80, 180&deg;)</td><td>(1.0, &minus;2.5, 0&deg;)</td><td>measured on the track</td></tr>
+          <tr><td>Pre-dock distance</td><td>0.75m</td><td>0.50m</td><td>set on the track</td></tr>
+          <tr><td>Docked distance d*</td><td>0.25m</td><td>0.40m</td><td>the camera lost the marker close up </td></tr>
+          <tr><td>Camera x on the robot</td><td>0.0855m</td><td>0.07m</td><td>measured</td></tr>
+          <tr><td>Speed limits</td><td>0.227m/s, 1.58rad/s (physical)</td><td>0.15m/s, 0.4rad/s</td><td>start gently (the Waffle Pi can do 0.26m/s and 1.82rad/s)</td></tr>
+          <tr><td>LiDAR safety corridor</td><td>0.203m half-width, 0.286m stop</td><td>0.183m, 0.186m</td><td>tuned on the real track. <code>hw_config.apply()</code> sets these for the hardware scripts only so the simulation keeps its own values.</td></tr>
+          <tr><td>RANSAC hypotheses</td><td>500</td><td>150</td><td>loop timing</td></tr>
+          <tr><td>Corner bias BIAS_PX</td><td>0.64px</td><td>0</td><td>a property of the simulated renderer, refit on hardware</td></tr>
+          <tr><td>Calibration board</td><td>9&times;6, 40mm squares</td><td>9&times;6, mm squares</td><td>printed board</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="title is-4">Camera calibration on the real camera</h3>
+    <p>
+      The simulated lens has no distortion so simulation uses a pinhole model (<a href="./sensing.html">B</a>). A real
+      lens does have distortion, so <code>calibrate_camera.py</code> fits the full (k<sub>1</sub>, k<sub>2</sub>,
+      p<sub>1</sub>, p<sub>2</sub>, k<sub>3</sub>) model, and the pipeline undistorts every frame before using the
+      pinhole model as in simulation. The saved calibration (30 October 2026) used 17 views:
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-fullwidth">
+        <tbody>
+          <tr><td>Reprojection RMS</td><td>0.503px</td></tr>
+          <tr><td>f / &rho;<sub>u</sub>, f / &rho;<sub>v</sub></td><td>1336.0px, 1342.0px</td></tr>
+          <tr><td>Principal point</td><td>(321.4, 171.6)px</td></tr>
+          <tr><td>Distortion (k<sub>1</sub>, k<sub>2</sub>, p<sub>1</sub>, p<sub>2</sub>, k<sub>3</sub>)</td><td>(0.2107, 1.2261, &minus;0.0383, &minus;0.0005, &minus;17.4953)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <b>A main issue/caveat within our testing:</b> A k<sub>3</sub> of &minus;17.5 and a principal point 68&nbsp;px above the image centre
+      are both typical signs of an over-fitted calibration, for example one where the board did not reach the image
+      corners. In simulation, the same pattern (large distortion terms the data did not support) made the principal
+      point 5&ndash;10&times; less repeatable. If marker ranges disagree with a tape measure, this calibration is the
+      first thing to redo.
+    </p>
+   
+    <h2 class="title is-3">3. Bring-up checks</h2>
+    <p><code>check_sensors.py</code> on the robot (no motion commands sent):</p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Topic</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><code>/joint_states</code></td><td>197 messages in 10s (20/s); joints <code>wheel_left_joint</code>, <code>wheel_right_joint</code></td></tr>
+          <tr><td><code>/odom</code></td><td>198 messages (20/s)</td></tr>
+          <tr><td><code>/scan</code></td><td>49 scans (4.9/s); 360 beams from 0&deg; at 1.00&deg;, range 0.12&ndash;3.50m; "no return" encoded as 0 (202 beams), confirming the conversion</td></tr>
+          <tr><td>camera</td><td>297 frames (29.7/s) at 640&times;480, matching the pipeline</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="title is-3">4. Results on the real robot</h2>
+    <p>Trials tested - seen in videos below</p>
+    <ul>
+      <li><b>Multiple obstacle configurations, and placing the markers at different points.</b> Confirmed
+        that the pipeline was robust enough to handle multiple test setups.
+      </li>
+      <li><b>A random, sudden obstacle that appears in its path</b> - placing a foot/leg directly in the path
+        of the robot, it was still able to replan around the new obstacle and dock.
+      </li>
+    </ul>
+    <div class="columns">
+      <div class="column">
+        <figure class="fig">
+          <video class="portrait" controls muted playsinline preload="metadata">
+            <source src="./static/videos/hardware_layout_update.mp4" type="video/mp4">
+          </video>
+          <figcaption>A changed layout: different obstacle positions and marker placement. The robot localises from
+            the reference marker, plans around the obstacles and docks.</figcaption>
+        </figure>
+      </div>
+      <div class="column">
+        <figure class="fig">
+          <video class="portrait" controls muted playsinline preload="metadata">
+            <source src="./static/videos/hardware_sudden_obstacle.mp4" type="video/mp4">
+          </video>
+          <figcaption>A sudden obstacle: a foot placed directly in the robot's path. The LiDAR sees it, the robot
+            replans around it and still docks.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <h2 class="title is-3">5. Porting issues</h2>
+    <p>Recorded during bring-up:</p>
+    <ul>
+      <li><b>Markers must be mounted upright,</b> or the camera does not recognise them.</li>
+      <li><b>Close to the dock, the camera lost the marker.</b> The docked distance on hardware is 0.4&nbsp;m against
+        0.25&nbsp;m in simulation.</li>
+      <li><b>The calibration board and markers differ from simulation</b> (25&nbsp;mm squares, 0.1&nbsp;m markers), so
+        these values moved out of the shared configuration into <code>hw_config.py</code>. That way, tuning the real
+        robot cannot change the simulation results.</li>
+      <li><b>Camera issues:</b> Camera models differed between the TurtleBot models available, and some suffered more
+        lighting or motion blur issues due to camera quality. Mounting was also different per model, meaning each
+        time we had to recalibrate the camera.</li>
+    </ul>
+
+
+    <h2 class="title is-3">6. To run it</h2>
+    <pre class="cmd">git submodule update --init
+python -m pip install --no-deps -e "./external/turtlebot_rosbridge"
+python -m pip install "roslibpy>=2.0,<3" "pynput>=1.7"
+
+python hardware_integration/check_sensors.py 192.168.1.2XX                       # topics, no motion
+python hardware_integration/calibrate_camera.py 192.168.1.2XX                    # writes camera_calibration.json
+python hardware_integration/run_hardware.py 192.168.1.2XX --dry-run --show-camera  # localise and plan, no motion
+python hardware_integration/run_hardware.py 192.168.1.2XX --show-camera --video runs/run1.mp4 --log runs/run1.pkl
+python hardware_integration/run_hardware.py --sim                               # the MuJoCo stand-in</pre>
+    <p class="is-size-7 has-text-grey">
+      <code>--no-deps</code> matters: the API asks for <code>opencv-python</code>, which would overwrite
+      <code>opencv-contrib-python</code> 4.10 (both install into the same <code>cv2</code> folder). Full instructions:
+      <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/hardware_integration/README.md"><code>hardware_integration/README.md</code></a>.
+    </p>
+
+    <div class="page-nav">
+      <a class="button is-light" href="./robustness.html">&larr; E Robustness</a>
+      <a class="button is-light" href="./index.html">Overview &rarr;</a>
+    </div>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container content has-text-centered is-size-7">
+    <p>41014 Sensors and Control for Mechatronic Systems, UTS, Spring 2026.</p>
+    <p>Adapted from the <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> template, licensed
+      <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>

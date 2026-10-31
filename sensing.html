@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Criterion B: camera calibration, the ArUco and LiDAR noise models, and frame management for the TurtleBot3 Waffle Pi.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>B Sensing</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="stylesheet" href="./static/css/project.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/index.js"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold" href="./index.html">TurtleBot visual docking</a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item" href="./modelling.html">A&nbsp;Modelling</a>
+      <a class="navbar-item is-active" href="./sensing.html">B&nbsp;Sensing</a>
+      <a class="navbar-item" href="./estimation.html">C&nbsp;Estimation</a>
+      <a class="navbar-item" href="./control.html">D&nbsp;Control</a>
+      <a class="navbar-item" href="./robustness.html">E&nbsp;Robustness</a>
+      <a class="navbar-item" href="./hardware.html">Hardware</a>
+    </div>
+    <div class="navbar-end">
+      <a class="navbar-item" href="https://github.com/kajakatovcic/41014_SPR26_Project">
+        <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <p class="is-size-6 has-text-grey">Criterion B</p>
+      <h1 class="title is-2 publication-title">Sensing</h1>
+      <p class="is-size-5">Calibration, noise handling and frame management</p>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+
+    <div class="callout tutorial">
+      <div class="callout-title">References to Tutorial Work</div>
+      <p>Camera calibration and its checks (Week 3 B, C), ArUco detection and PnP pose (Week 3 E), the range-and-bearing
+        noise model (Week 3 wrap-up), LiDAR point clouds, RANSAC, DBSCAN and ICP (Week 4, Part 5 + Bonus), and the
+        range-bearing measurement \(h_{rb}\) (Week 7 C.4).
+        Code: <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/src/perception/perception.py"><code>src/perception/perception.py</code></a>,
+        <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/src/perception/calibration.py"><code>calibration.py</code></a>.
+        Evaluated by <code>tests/test_calibration.py</code> and <code>tests/test_perception.py</code> (500 random poses per seed).</p>
+    </div>
+
+    <h2 class="title is-3" id="frames">1. Frames and how they were checked</h2>
+    <figure class="fig">
+      <img src="./static/figures/frames.svg" alt="Frame diagram">
+      <figcaption>Frames of the explore mission and the sensor mounts on the robot.</figcaption>
+    </figure>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Frame</th><th>Definition</th><th>Where it comes from</th></tr></thead>
+        <tbody>
+          <tr><td>{A}</td><td>reference marker's floor frame: origin below the marker centre, x out of the wall into the room, y to the left</td><td>the robot's working frame - the estimate, LiDAR map and every path are in {A}</td></tr>
+          <tr><td>{D}</td><td>dock marker</td><td><code>DOCK_OFFSET</code> in {A}: (3.790&nbsp;m, 1.800&nbsp;m, 180&deg;). Measured with a tape on hardware</td></tr>
+          <tr><td>{R}</td><td>robot: on the floor between the wheels, x forward, y left, z up</td><td>the EKF state x&#770; = (x, y, &theta;) is {R} in {A}</td></tr>
+          <tr><td>{S}</td><td>LiDAR scan origin</td><td>T<sub>RS</sub> = (&minus;0.049, 0, 0.1255)&nbsp;m; beam angle 0 = x<sub>R</sub>, counter-clockwise positive</td></tr>
+          <tr><td>{C}</td><td>camera, optical convention (z forward, y down)</td><td>T<sub>RC</sub> = (0.0855, 0, 0.107)&nbsp;m with z<sub>C</sub> = x<sub>R</sub>, x<sub>C</sub> = &minus;y<sub>R</sub></td></tr>
+          <tr><td>{M}</td><td>each detected marker</td><td>PnP gives T<sub>CM</sub>; T<sub>RM</sub> = T<sub>RC</sub>T<sub>CM</sub> gives range and bearing from the robot origin (Week 7 h<sub>rb</sub>)</td></tr>
+          <tr><td>{W}</td><td>simulator world</td><td>EVALUATION ONLY: estimates are mapped through marker 1's true pose to compare with ground truth</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Both mounts were verified rather than just written down:</p>
+    <ul>
+      <li><b>LiDAR mount:</b> range residuals against Week 4 analytic ray casting have mean &minus;0.32&nbsp;mm and std
+        10.08&nbsp;mm against the 10&nbsp;mm noise, with no beam beyond 5&sigma;. RANSAC walls land within 2.5&nbsp;mm
+        and 0.10&deg;. This confirms T<sub>RS</sub> and the beam angle convention.</li>
+      <li><b>Camera mount:</b> recovered from the calibration poses, the camera position is within
+        (&minus;1.1, +0.3, &minus;0.2)&nbsp;mm (scatter 1.0&nbsp;mm per view) and the orientation within 0.07&deg;
+        (worst view 0.40&deg;).</li>
+    </ul>
+
+    <h2 class="title is-3">2. Camera calibration (Week 3 B, C)</h2>
+    <p>
+      Setup: A checkerboard with 9&times;6 internal corners and 40&nbsp;mm squares held in front of the stationary
+      robot at 0.45&ndash;1.0&nbsp;m with tilts up to about 35&deg;. Imaged through the noisy simulated camera
+      (640&times;480).
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-fullwidth">
+        <thead><tr><th>30 views, pinhole model</th><th>Calibrated</th><th>True</th></tr></thead>
+        <tbody>
+          <tr><td>f / &rho;<sub>u</sub>, f / &rho;<sub>v</sub></td><td>529.71&nbsp;px (+0.120%), 529.88&nbsp;px (+0.152%)</td><td>529.08&nbsp;px</td></tr>
+          <tr><td>principal point (u<sub>0</sub>, v<sub>0</sub>)</td><td>(319.32, 239.22)&nbsp;px</td><td>(319.5, 239.5)&nbsp;px</td></tr>
+          <tr><td>reprojection RMS</td><td colspan="2">0.111&nbsp;px (Per image 0.039&ndash;0.388&nbsp;px. Worst is a steep, distant view)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <b>Pinhole or full distortion?</b> In week 3, the 5-term distortion model is fitted by default. 
+      Here it gave the same RMS (0.111&nbsp;px) so the extra terms explain nothing. However, they did "disort"
+      pixels by up to 17.7&nbsp;px in the image corners where the board never was. Over 5 independent calibrations each:
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Views</th><th>Model</th><th>f error [%]</th><th>u<sub>0</sub> error [px]</th><th>v<sub>0</sub> error [px]</th><th>max distortion [px]</th></tr></thead>
+        <tbody>
+          <tr><td>10</td><td>full distortion</td><td>+0.031 &plusmn; 0.050</td><td>+0.350 &plusmn; 0.700</td><td>+0.131 &plusmn; 0.496</td><td>13.0 &plusmn; 11.2</td></tr>
+          <tr><td>10</td><td>pinhole</td><td>+0.002 &plusmn; 0.051</td><td>&minus;0.007 &plusmn; 0.134</td><td>+0.054 &plusmn; 0.217</td><td>0</td></tr>
+          <tr><td>20</td><td>full distortion</td><td>+0.070 &plusmn; 0.032</td><td>+0.108 &plusmn; 0.663</td><td>&minus;0.042 &plusmn; 0.369</td><td>14.9 &plusmn; 14.9</td></tr>
+          <tr><td>20</td><td>pinhole</td><td>+0.064 &plusmn; 0.033</td><td>+0.040 &plusmn; 0.058</td><td>&minus;0.004 &plusmn; 0.276</td><td>0</td></tr>
+          <tr><td>40</td><td>full distortion</td><td>+0.077 &plusmn; 0.068</td><td>&minus;0.442 &plusmn; 0.609</td><td>+0.098 &plusmn; 0.262</td><td>12.4 &plusmn; 16.5</td></tr>
+          <tr><td>40</td><td>pinhole</td><td>+0.074 &plusmn; 0.070</td><td>&minus;0.041 &plusmn; 0.058</td><td>+0.209 &plusmn; 0.291</td><td>0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <b>Decision: Pinhole.</b> The simulated lens has no distortion, the data does not support the extra terms, and
+      they make the principal point 5&ndash;10&times; less repeatable. The real camera does need the full model - see
+      <a href="./hardware.html">Hardware</a>.
+    </p>
+    <p><b>How the calibration error carries into perception:</b></p>
+    <ul>
+      <li>The +0.12% focal error scales every range by the same amount (+1.2&nbsp;mm at 1&nbsp;m). This is negligible.</li>
+      <li>The 0.18&nbsp;px u<sub>0</sub> error shifts every bearing by 0.0195&deg;. The measured bearing bias is
+        &minus;0.015 to &minus;0.017&deg; which matches. That is as large as the bearing noise itself (0.023&deg;).</li>
+      <li>With the noise model alone, bearing 2&sigma; coverage fell to 89&ndash;95%. On a real robot this bias cannot
+        be measured so the principal point's calibration uncertainty (0.2&nbsp;px) was added to the bearing variance.
+        Coverage returned to 97&ndash;99%.</li>
+      <li>System-level effect: a 2% focal-length error is the most damaging sensor fault we tested
+        (<a href="./robustness.html">E</a>).</li>
+    </ul>
+    <figure class="fig">
+      <img src="./static/figures/calibration.png" alt="Calibration results">
+      <figcaption><code>tests/test_calibration.py</code>. Top: the worst calibration view and its reprojection
+        residuals magnified 100&times; (Week 3 C). Bottom left: per-image reprojection error which is the same for
+        both models. Bottom right: focal length and principal point error against the number of views, for the pinhole
+        and full-distortion models.</figcaption>
+    </figure>
+
+    <h2 class="title is-3">3. ArUco range and bearing + their noise model</h2>
+    <p>
+      Markers: 4x4_50 dictionary, 150&nbsp;mm, centres 0.13&nbsp;m above the floor. Camera: 640&times;480, 48.8&deg;
+      vertical field of view, at 10&nbsp;Hz. Perception reports \(z = [\rho, \alpha]\) from the robot origin, through
+      T<sub>RC</sub>, together with its covariance.
+    </p>
+    <ul>
+      <li><b>Detection:</b> 95&ndash;100% of fully visible markers within 2&nbsp;m at under 60&deg; off square-on (100%
+        under 30&deg;). At 2&ndash;3&nbsp;m, 92&ndash;98%; above 60&deg;, 57&ndash;78% at 1&ndash;2&nbsp;m.</li>
+      <li><b>Wrong IDs: 0 after checking.</b> The menagerie floor is reflective and reflections of markers decoded as
+        wrong IDs (ID 17). Real floors can also reflect, so this is handled in perception rather than by changing the floor.
+        A detection is rejected unless its ID is expected and its centre is at the marker height (&plusmn;0.1&nbsp;m).
+        Reflections appear below the floor.</li>
+    </ul>
+    <p>
+      <b>Range bias and its correction.</b> Raw range was biased long by +41 to +51&nbsp;mm, growing with range
+      squared. Range comes from apparent size, \(n = f s / Z\), so corners detected \(\delta\) px inside the marker
+      outline give a range error of \(Z^2 \delta / (f s)\). The fitted corner bias is 0.60&ndash;0.68&nbsp;px per seed-
+      the module uses 0.64&nbsp;px. After correction, the mean error is &minus;4.6 to +1.0&nbsp;mm and the RMS
+      29.9&ndash;35.4&nbsp;mm. We also tried cornerSubPix refinement with re-solved PnP and rejected it as far ranges
+      became unstable, up to &minus;540&nbsp;mm at 3.5&nbsp;m.
+    </p>
+    <p><b>Noise model handed to the EKF</b> (Week 3):</p>
+    \[ \sigma_\rho = \frac{Z^2\,\sigma_{\rho,px}}{f\,s}, \quad \sigma_{\rho,px} = 0.45\ \text{px}; \qquad
+       \sigma_\alpha = \frac{\sqrt{\sigma_{\alpha,px}^2 + \sigma_{pp}^2}}{f}, \quad \sigma_{\alpha,px} = 0.24\ \text{px},\ \sigma_{pp} = 0.2\ \text{px}. \]
+    <p>
+      Range noise grows with range squared. Bearing noise is constant (about 0.023&deg;). Range scatters more than
+      bearing because it depends on apparent size and the PnP solution, both of which degrade at oblique views, while
+      bearing depends only on where the centre lands in the image. <b>Consistency check</b> on held-out seeds- errors
+      fall inside the reported 2&sigma; bounds 96&ndash;97% of the time for range and 97&ndash;99% for bearing,
+      against an expected 95%. That is slightly conservative as recommended in week 7 content.
+    </p>
+    <figure class="fig">
+      <img src="./static/figures/perception.png" alt="Perception evaluation">
+      <figcaption><code>tests/test_perception.py</code>. Top left: LiDAR obstacle clusters from 40 scans over the
+        true geometry. Top right: ArUco range error, raw (grey) and bias-corrected (blue), with the bias model and the
+        reported 2&sigma; band. Bottom left: bearing error. Bottom right: marker detection rate against range for three
+        ranges of viewing angle.</figcaption>
+    </figure>
+
+    <h2 class="title is-3">4. LiDAR: walls, obstacles and odometry</h2>
+    <p>
+      LDS-01: 360 beams at 1&deg;, 0.12&ndash;3.5&nbsp;m, simulated range noise &sigma; = 1&nbsp;cm, at 5&nbsp;Hz. The
+      pipeline turns a scan into points in {R} through T<sub>RS</sub>, downsamples them on a voxel grid, fits walls by
+      sequential RANSAC lines and finds obstacles by DBSCAN clustering.
+    </p>
+    <p>
+      <b>We tuned rather than copied.</b> Week 4's parameters were set for a 32-row LiDAR but on a single scan line they fail:
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Settings (300 random poses)</th><th>Obstacles detected</th><th>Within 2.5 m</th><th>False clusters</th></tr></thead>
+        <tbody>
+          <tr><td>Week 4 values: outlier removal (10 nb), eps 0.06, min 8</td><td>23.3%</td><td>24.5%</td><td>0</td></tr>
+          <tr><td>Week 4 eps/min, outlier removal off</td><td>22.4%</td><td>23.5%</td><td>0</td></tr>
+          <tr><td>tuned eps/min, outlier removal on (5 nb)</td><td>92.5%</td><td>94.7%</td><td>0</td></tr>
+          <tr><td><b>used: outlier removal off, eps 0.10, min 4</b></td><td><b>96.9%</b></td><td><b>99.3%</b></td><td>0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Justification: DBSCAN only starts a cluster at a point with <i>min_points</i> neighbours within <i>eps</i>. On one scan
+      line with beam spacing \(s\), a radius <i>eps</i> holds at most about \(2\,eps/s + 1\) points. At 2&nbsp;m
+      (\(s\) = 3.5&nbsp;cm) and eps = 6&nbsp;cm that is about 4, so min_points = 8 is almost never reached.
+      Statistical outlier removal targets the flying pixels of RGB-D and stereo sensors. This LiDAR has none, and the
+      filter deleted the real, sparse returns from distant obstacles. When scored fairly for min 8 (visible means at
+      least 8 beams on the object), the Week 4 values reach 33.1% against 90.9%.
+    </p>
+    <p>
+      A RANSAC line counts as a wall only if its inliers span at least 1&nbsp;m, longer than any obstacle face, using
+      the longest unbroken run (gaps over 0.2&nbsp;m split it). Without that rule, close box faces were removed as
+      "walls". Detection falls off beyond about 2.5&nbsp;m (63% at 2.5&ndash;3&nbsp;m), where 1&deg; beams are
+      5&ndash;6&nbsp;cm apart.
+    </p>
+    <p><b>ICP odometry</b> (Week 4), driving a 2.43&nbsp;m circle with 105 scan pairs:</p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>Method</th><th>Per-step error</th><th>Final drift</th></tr></thead>
+        <tbody>
+          <tr><td>point-to-point, 0.1m correspondence</td><td>3.0mm, 0.165&deg;</td><td>49mm (2.0%), 2.08&deg;</td></tr>
+          <tr><td>point-to-point, 0.3m</td><td>3.0mm, 0.161&deg;</td><td>38mm (1.6%), 3.44&deg;</td></tr>
+          <tr><td>point-to-plane, 0.3m</td><td>1.4mm, 0.029&deg;</td><td>10mm (0.4%), 0.49&deg;</td></tr>
+          <tr><td>encoder dead reckoning (same drive)</td><td>&ndash;</td><td>13mm, 1.70&deg;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      A 2D scan has no surface normals since every neighbourhood is a line. So the scan is extruded into short
+      vertical walls (+0.1&nbsp;m) before normal estimation. Point-to-plane ICP is about 6&times; better in heading than
+      the encoders. ICP was evaluated as an additional odometry source but is not used in the final loop.
+    </p>
+    <figure class="fig">
+      <img src="./static/figures/setup_waffle_lidar.png" alt="LiDAR measurement model and ICP odometry">
+      <figcaption><code>setup_tests/test_waffle_lidar.py</code>. Top: one scan placed in the world through
+        T<sub>RS</sub> over the true geometry + its range residuals against N(0, &sigma;). Bottom left: RANSAC walls
+        (colours) and DBSCAN obstacles (&times;). Bottom right: ICP LiDAR odometry and encoder dead reckoning against
+        the true path.</figcaption>
+    </figure>
+
+    <h2 class="title is-3" id="fusion">5. Camera + LiDAR fusion: Which way a marker faces</h2>
+    <p>
+      The explore mission localises from one marker so it needs that marker's yaw (which way it faces) as well as its
+      range and bearing. PnP's yaw suffers the planar pose ambiguity (Week 3 E). Seen face on, it was wrong by
+      &minus;5.8&deg; at 0.6&nbsp;m and &minus;10.7&deg; at 1.5&nbsp;m. It was identical in every frame, so averaging does
+      not help. One view flipped by &minus;61&deg;. The marker hangs on a wall and the LiDAR's RANSAC wall line gives
+      the wall's normal to within 0.1&deg;.
+    </p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th>18 views, 0.6&ndash;1.5m, &minus;40 to +40&deg; off the normal</th><th>Heading within 2&deg;</th><th>Median position error</th><th>Worst</th></tr></thead>
+        <tbody>
+          <tr><td>marker yaw from PnP (Week 3 E)</td><td>89% of views</td><td>10mm</td><td>280mm/10.7&deg;</td></tr>
+          <tr><td><b>marker yaw from the LiDAR wall line</b></td><td><b>100% of views</b></td><td><b>3mm</b></td><td><b>mm/0.2&deg;</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The same wall line is used again during the mission as a heading measurement. See
+      <a href="./estimation.html#wall">C</a>.
+    </p>
+
+    <div class="callout beyond">
+      <div class="callout-title">Extensions beyond tutorial content</div>
+      <ul>
+        <li>Sensor parameters tuned to the sensor with measured evidence (DBSCAN and outlier removal) + the
+          mechanism explained.</li>
+        <li>Calibration model choice settled by a repeatability study. The calibration's own uncertainty propagated
+          into the bearing noise.</li>
+        <li>A range-bias model which was derived from the camera model, fitted, and checked for 2&sigma; consistency on held-out
+          seeds.</li>
+        <li>Camera and LiDAR fusion to resolve the planar pose ambiguity compared against PnP alone.</li>
+        <li>Two ICP variants compared against the encoders.</li>
+      </ul>
+    </div>
+
+    <div class="callout limits">
+      <div class="callout-title">What these results do and do not support?</div>
+      <ul>
+        <li>The noise models are fitted to the simulator's renderer and LiDAR. The corner bias (0.64&nbsp;px) is a
+          property of the renderer so it is set to 0 on hardware until refitted.</li>
+        <li>Marker detection drops above 60&deg; viewing angle and LiDAR obstacle detection beyond about
+          2.5&nbsp;m.</li>
+        <li>The wall-line yaw needs the marker on a straight wall at least 1&nbsp;m long, in the LiDAR's view.
+          Otherwise it falls back to PnP's yaw.</li>
+      </ul>
+    </div>
+
+    <div class="page-nav">
+      <a class="button is-light" href="./modelling.html">&larr; A Modelling</a>
+      <a class="button is-light" href="./estimation.html">C Estimation &rarr;</a>
+    </div>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container content has-text-centered is-size-7">
+    <p>41014 Sensors and Control for Mechatronic Systems, UTS, Spring 2026. Numbers from
+      <a href="https://github.com/kajakatovcic/41014_SPR26_Project/tree/main/findings"><code>findings/</code></a>.</p>
+    <p>Adapted from the <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> template, licensed
+      <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>

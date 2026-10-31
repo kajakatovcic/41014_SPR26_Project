@@ -1,36 +1,29 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="description"
-        content="Deformable Neural Radiance Fields creates free-viewpoint portraits (nerfies) from casually captured videos.">
-  <meta name="keywords" content="Nerfies, D-NeRF, NeRF">
+        content="41014 Sensors and Control - Track A: A TurtleBot3 Waffle Pi that localises from an ArUco marker, plans around obstacles on its own LiDAR map, tracks a spline with LQR and docks visually at its charger.">
+  <meta name="keywords" content="TurtleBot3, EKF, LQR, visual servoing, ArUco, MuJoCo, LiDAR">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nerfies: Deformable Neural Radiance Fields</title>
+  <title>TurtleBot Visual Docking</title>
 
-
-  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
-        rel="stylesheet">
-
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
   <link rel="stylesheet" href="./static/css/bulma.min.css">
-  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
-  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
   <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
-  <link rel="stylesheet"
-        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
   <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="stylesheet" href="./static/css/project.css">
   <link rel="icon" href="./static/images/favicon.svg">
 
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
   <script defer src="./static/js/fontawesome.all.min.js"></script>
-  <script src="./static/js/bulma-carousel.min.js"></script>
-  <script src="./static/js/bulma-slider.min.js"></script>
   <script src="./static/js/index.js"></script>
 </head>
 <body>
 
 <nav class="navbar" role="navigation" aria-label="main navigation">
   <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold is-active" href="./index.html">TurtleBot visual docking</a>
     <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
       <span aria-hidden="true"></span>
       <span aria-hidden="true"></span>
@@ -38,34 +31,19 @@
     </a>
   </div>
   <div class="navbar-menu">
-    <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
-      <a class="navbar-item" href="https://keunhong.com">
-      <span class="icon">
-          <i class="fas fa-home"></i>
-      </span>
-      </a>
-
-      <div class="navbar-item has-dropdown is-hoverable">
-        <a class="navbar-link">
-          More Research
-        </a>
-        <div class="navbar-dropdown">
-          <a class="navbar-item" href="https://hypernerf.github.io">
-            HyperNeRF
-          </a>
-          <a class="navbar-item" href="https://nerfies.github.io">
-            Nerfies
-          </a>
-          <a class="navbar-item" href="https://latentfusion.github.io">
-            LatentFusion
-          </a>
-          <a class="navbar-item" href="https://photoshape.github.io">
-            PhotoShape
-          </a>
-        </div>
-      </div>
+    <div class="navbar-start">
+      <a class="navbar-item" href="./modelling.html">A&nbsp;Modelling</a>
+      <a class="navbar-item" href="./sensing.html">B&nbsp;Sensing</a>
+      <a class="navbar-item" href="./estimation.html">C&nbsp;Estimation</a>
+      <a class="navbar-item" href="./control.html">D&nbsp;Control</a>
+      <a class="navbar-item" href="./robustness.html">E&nbsp;Robustness</a>
+      <a class="navbar-item" href="./hardware.html">Hardware</a>
     </div>
-
+    <div class="navbar-end">
+      <a class="navbar-item" href="https://github.com/kajakatovcic/41014_SPR26_Project">
+        <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+      </a>
+    </div>
   </div>
 </nav>
 
@@ -75,86 +53,49 @@
     <div class="container is-max-desktop">
       <div class="columns is-centered">
         <div class="column has-text-centered">
-          <h1 class="title is-1 publication-title">Nerfies: Deformable Neural Radiance Fields</h1>
-          <div class="is-size-5 publication-authors">
-            <span class="author-block">
-              <a href="https://keunhong.com">Keunhong Park</a><sup>1</sup>,</span>
-            <span class="author-block">
-              <a href="https://utkarshsinha.com">Utkarsh Sinha</a><sup>2</sup>,</span>
-            <span class="author-block">
-              <a href="https://jonbarron.info">Jonathan T. Barron</a><sup>2</sup>,
-            </span>
-            <span class="author-block">
-              <a href="http://sofienbouaziz.com">Sofien Bouaziz</a><sup>2</sup>,
-            </span>
-            <span class="author-block">
-              <a href="https://www.danbgoldman.com">Dan B Goldman</a><sup>2</sup>,
-            </span>
-            <span class="author-block">
-              <a href="https://homes.cs.washington.edu/~seitz/">Steven M. Seitz</a><sup>1,2</sup>,
-            </span>
-            <span class="author-block">
-              <a href="http://www.ricardomartinbrualla.com">Ricardo Martin-Brualla</a><sup>2</sup>
-            </span>
-          </div>
+          <h1 class="title is-1 publication-title">Visual docking for a TurtleBot3 Waffle Pi</h1>
+          <p class="is-size-5">Track A: mobile robot, visual waypoint navigation</p>
+          <p class="is-size-6 has-text-grey">41014 Sensors and Control for Mechatronic Systems, UTS, Spring 2026</p>
 
+          <p class="is-size-5 publication-authors" style="margin-top: 1rem;">
+            Group 3
+          </p>
           <div class="is-size-5 publication-authors">
-            <span class="author-block"><sup>1</sup>University of Washington,</span>
-            <span class="author-block"><sup>2</sup>Google Research</span>
+            <span class="author-block">Kaja Katovcic,</span>
+            <span class="author-block">Anthony Fava,</span>
+            <span class="author-block">Lily Beharrell,</span>
+            <span class="author-block">Maree Parisi</span>
           </div>
 
           <div class="column has-text-centered">
             <div class="publication-links">
-              <!-- PDF Link. -->
               <span class="link-block">
-                <a href="https://arxiv.org/pdf/2011.12948"
+                <a href="https://github.com/kajakatovcic/41014_SPR26_Project"
                    class="external-link button is-normal is-rounded is-dark">
-                  <span class="icon">
-                      <i class="fas fa-file-pdf"></i>
-                  </span>
-                  <span>Paper</span>
-                </a>
-              </span>
-              <span class="link-block">
-                <a href="https://arxiv.org/abs/2011.12948"
-                   class="external-link button is-normal is-rounded is-dark">
-                  <span class="icon">
-                      <i class="ai ai-arxiv"></i>
-                  </span>
-                  <span>arXiv</span>
-                </a>
-              </span>
-              <!-- Video Link. -->
-              <span class="link-block">
-                <a href="https://www.youtube.com/watch?v=MrKrnHhk8IA"
-                   class="external-link button is-normal is-rounded is-dark">
-                  <span class="icon">
-                      <i class="fab fa-youtube"></i>
-                  </span>
-                  <span>Video</span>
-                </a>
-              </span>
-              <!-- Code Link. -->
-              <span class="link-block">
-                <a href="https://github.com/google/nerfies"
-                   class="external-link button is-normal is-rounded is-dark">
-                  <span class="icon">
-                      <i class="fab fa-github"></i>
-                  </span>
+                  <span class="icon"><i class="fab fa-github"></i></span>
                   <span>Code</span>
-                  </a>
+                </a>
               </span>
-              <!-- Dataset Link. -->
               <span class="link-block">
-                <a href="https://github.com/google/nerfies/releases/tag/0.1"
+                <a href="#demo" class="button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fab fa-youtube"></i></span>
+                  <span>Demo video</span>
+                </a>
+              </span>
+              <span class="link-block">
+                <a href="https://github.com/kajakatovcic/41014_SPR26_Project/tree/main/findings"
                    class="external-link button is-normal is-rounded is-dark">
-                  <span class="icon">
-                      <i class="far fa-images"></i>
-                  </span>
-                  <span>Data</span>
-                  </a>
+                  <span class="icon"><i class="fas fa-chart-line"></i></span>
+                  <span>Test outputs</span>
+                </a>
+              </span>
+              <span class="link-block">
+                <a href="./hardware.html" class="button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fas fa-robot"></i></span>
+                  <span>Hardware</span>
+                </a>
+              </span>
             </div>
-
           </div>
         </div>
       </div>
@@ -162,74 +103,48 @@
   </div>
 </section>
 
+
 <section class="hero teaser">
   <div class="container is-max-desktop">
     <div class="hero-body">
-      <video id="teaser" autoplay muted loop playsinline height="100%">
-        <source src="./static/videos/teaser.mp4"
-                type="video/mp4">
+      <video id="teaser" autoplay muted loop playsinline controls width="100%">
+        <source src="./static/videos/mission.mp4" type="video/mp4">
       </video>
-      <h2 class="subtitle has-text-centered">
-        <span class="dnerf">Nerfies</span> turns selfie videos from your phone into
-        free-viewpoint
-        portraits.
+      <h2 class="subtitle has-text-centered is-size-6" style="margin-top: 0.75rem;">
+        The full mission in simulation in real time (46&nbsp;s). Left: an overview of the room. Right: the robot's own
+        camera, with each marker perception detected and its measured range and bearing.
       </h2>
     </div>
   </div>
 </section>
 
 
-<section class="hero is-light is-small">
-  <div class="hero-body">
-    <div class="container">
-      <div id="results-carousel" class="carousel results-carousel">
-        <div class="item item-steve">
-          <video poster="" id="steve" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/steve.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <div class="item item-chair-tp">
-          <video poster="" id="chair-tp" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/chair-tp.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <div class="item item-shiba">
-          <video poster="" id="shiba" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/shiba.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <div class="item item-fullbody">
-          <video poster="" id="fullbody" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/fullbody.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <div class="item item-blueshirt">
-          <video poster="" id="blueshirt" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/blueshirt.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <div class="item item-mask">
-          <video poster="" id="mask" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/mask.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <div class="item item-coffee">
-          <video poster="" id="coffee" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/coffee.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <div class="item item-toby">
-          <video poster="" id="toby" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/toby2.mp4"
-                    type="video/mp4">
-          </video>
+<section class="section section-tight">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3 has-text-centered">Overview</h2>
+        <div class="content has-text-justified">
+          <p>
+            We took <b>Track A</b>: A TurtleBot3 Waffle Pi, simulated using MuJoCo, needs to cross a room with obstacles using
+            its 2D LiDAR and then dock visually at a charging station marked with an ArUco tag. It has the platform's
+            own sensors- wheel encoders (4096 ticks/rev), an LDS-01 LiDAR (360 beams, 0.12&ndash;3.5&nbsp;m) and a
+            640&times;480 RGB camera.
+          </p>
+          <p>
+            We built the mission so it would carry over real hardware with no changes. The robot starts with
+            <b>no map, no route and no known start pose</b>. All it knows is where the dock marker sits relative to a
+            reference marker, which is measured when implemented on a real track. It localises from the reference marker, maps the
+            room with its LiDAR as it drives, replans a smooth path around whatever it finds, and docks on the camera.
+          </p>
+          <ul>
+            <li><b>Model:</b> A unicycle with a wheel actuator model derived from the MuJoCo parameters, plus the
+              cross-track/heading error model the controller uses, with its controllability and observability analysed.</li>
+            <li><b>Estimator:</b> An EKF on (x, y, &theta;) fusing encoder odometry with ArUco range and bearing. It is
+              extended into EKF-SLAM for the explore mission with a LiDAR wall-line heading measurement.</li>
+            <li><b>Controller:</b> LQR path following on a spline with curvature feed-forward, a Lyapunov turn on the
+              spot, and Week&nbsp;9 position-based visual servoing to dock. All of it runs on the <i>estimate</i>.</li>
+          </ul>
         </div>
       </div>
     </div>
@@ -237,206 +152,305 @@
 </section>
 
 
-<section class="section">
+<section class="section section-tight">
   <div class="container is-max-desktop">
-    <!-- Abstract. -->
-    <div class="columns is-centered has-text-centered">
-      <div class="column is-four-fifths">
-        <h2 class="title is-3">Abstract</h2>
-        <div class="content has-text-justified">
-          <p>
-            We present the first method capable of photorealistically reconstructing a non-rigidly
-            deforming scene using photos/videos captured casually from mobile phones.
-          </p>
-          <p>
-            Our approach augments neural radiance fields
-            (NeRF) by optimizing an
-            additional continuous volumetric deformation field that warps each observed point into a
-            canonical 5D NeRF.
-            We observe that these NeRF-like deformation fields are prone to local minima, and
-            propose a coarse-to-fine optimization method for coordinate-based models that allows for
-            more robust optimization.
-            By adapting principles from geometry processing and physical simulation to NeRF-like
-            models, we propose an elastic regularization of the deformation field that further
-            improves robustness.
-          </p>
-          <p>
-            We show that <span class="dnerf">Nerfies</span> can turn casually captured selfie
-            photos/videos into deformable NeRF
-            models that allow for photorealistic renderings of the subject from arbitrary
-            viewpoints, which we dub <i>"nerfies"</i>. We evaluate our method by collecting data
-            using a
-            rig with two mobile phones that take time-synchronized photos, yielding train/validation
-            images of the same pose at different viewpoints. We show that our method faithfully
-            reconstructs non-rigidly deforming scenes and reproduces unseen views with high
-            fidelity.
-          </p>
-        </div>
-      </div>
+    <h2 class="title is-3 has-text-centered">Results at a glance</h2>
+    <div class="stat-grid three">
+      <div class="stat"><strong>130/130</strong><span>missions docked across 13 disturbance scenarios &times; 10 trials</span></div>
+      <div class="stat"><strong>10/10</strong><span>random starts docked, 0 collisions, mean 44&nbsp;s</span></div>
+      <div class="stat"><strong>0.8mm</strong><span>mean lateral docking error (10 random starts)</span></div>
+      <div class="stat"><strong>11mm</strong><span>EKF position RMS, against 86&nbsp;mm for dead reckoning</span></div>
+      <div class="stat"><strong>NEES 1.88</strong><span>filter consistency (3 = consistent, below = conservative)</span></div>
+      <div class="stat"><strong>10/10</strong><span>pushed while docking and still docked (route baseline: 0/10)</span></div>
     </div>
-    <!--/ Abstract. -->
+    <div class="content">
+      <div class="table-wrap">
+        <table class="table is-striped is-narrow is-fullwidth">
+          <thead>
+            <tr><th>Result (explore mission, simulation)</th><th>Value</th><th>Test</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Missions from random starts</td><td>10/10 docked, 0 collisions, 44.1&nbsp;s mean</td><td><code>tests/test_navigation.py</code></td></tr>
+            <tr><td>Docking error (distance, lateral, heading)</td><td>9.8&nbsp;mm, 0.8&nbsp;mm, 0.1&deg; (mean |error|)</td><td><code>tests/test_navigation.py</code></td></tr>
+            <tr><td>Localising from one marker: heading within 2&deg;</td><td>100% of 18 views (PnP alone: 89%)</td><td><code>tests/test_navigation.py</code></td></tr>
+            <tr><td>Estimation error over 5 missions</td><td>EKF 11.3&nbsp;mm RMS; dead reckoning 86&nbsp;mm</td><td><code>tests/test_estimation.py</code></td></tr>
+            <tr><td>Consistency</td><td>mean NEES 1.88, 2&sigma; coverage 100%, 0 gate rejections</td><td><code>tests/test_estimation.py</code></td></tr>
+            <tr><td>Robustness</td><td>130/130 over 13 scenarios (first version: 104/130)</td><td><code>tests/test_robustness.py</code></td></tr>
+            <tr><td>Route mission baseline (known map and start)</td><td>EKF 3.1&nbsp;mm RMS; LQR path error 1.8&nbsp;mm RMS; robustness 107/120</td><td><code>--mission route</code></td></tr>
+            <tr><td>Real robot</td><td>Docked 4/5 runs, ~40mm distance. Mean ~80sec</td><td><code>hardware_integration/run_hardware.py</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="is-size-7 has-text-grey">
+        Every number is printed by a test in the repository.
+        Success means docked within 30&nbsp;mm and 5&deg; of the true docked pose (with no collision) in under 150&nbsp;s.
+      </p>
+    </div>
+  </div>
+</section>
 
-    <!-- Paper video. -->
+
+<section class="section section-tight" id="demo">
+  <div class="container is-max-desktop">
     <div class="columns is-centered has-text-centered">
       <div class="column is-four-fifths">
-        <h2 class="title is-3">Video</h2>
+        <h2 class="title is-3">Demo video</h2>
+        <!-- TODO: upload the 5-minute video (YouTube, unlisted), then replace this block with:
         <div class="publication-video">
-          <iframe src="https://www.youtube.com/embed/MrKrnHhk8IA?rel=0&amp;showinfo=0"
+          <iframe src="https://www.youtube.com/embed/VIDEO_ID?rel=0"
                   frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
         </div>
+        -->
+        <div class="todo has-text-left">
+          Embed the 5-minute demo video here. 
+        </div>
       </div>
     </div>
-    <!--/ Paper video. -->
   </div>
 </section>
 
 
-<section class="section">
+<section class="section section-tight">
   <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">System</h2>
+    <div class="content">
+      <figure class="fig">
+        <img src="./static/figures/pipeline.svg" alt="Pipeline: MuJoCo world, sensor drivers, perception, estimator, navigator and controller, wheel commands back to the world; ground truth only to the log">
+        <figcaption>
+          The loop in <code>main.py</code>. Estimation and control run at 20&nbsp;Hz, the camera at 10&nbsp;Hz and the LiDAR
+          at 5&nbsp;Hz. The controller receives the estimate and sensor data ONLY.
+        </figcaption>
+      </figure>
 
-    <div class="columns is-centered">
+      <h3 class="title is-4">Frames</h3>
+      <figure class="fig">
+        <img src="./static/figures/frames.svg" alt="Frame diagram: reference marker frame A, dock marker D, robot R, camera C, LiDAR S, and the simulator world W used only for evaluation">
+        <figcaption>
+          The robot localises in the reference marker's frame {A}, as it is the only one it can know on real
+          hardware. The mounts T<sub>RC</sub> and T<sub>RS</sub> were checked end to end. The camera mount recovered
+          from the calibration poses is within 1.1&nbsp;mm and 0.07&deg;, and the LiDAR range residual has a mean of
+          &minus;0.32&nbsp;mm. The world frame {W} exists only in the simulator. It is used to plot estimates against
+          truth. See <a href="./sensing.html#frames">B&nbsp;Sensing</a>.
+        </figcaption>
+      </figure>
 
-      <!-- Visual Effects. -->
-      <div class="column">
-        <div class="content">
-          <h2 class="title is-3">Visual Effects</h2>
-          <p>
-            Using <i>nerfies</i> you can create fun visual effects. This Dolly zoom effect
-            would be impossible without nerfies since it would require going through a wall.
-          </p>
-          <video id="dollyzoom" autoplay controls muted loop playsinline height="100%">
-            <source src="./static/videos/dollyzoom-stacked.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-      </div>
-      <!--/ Visual Effects. -->
-
-      <!-- Matting. -->
-      <div class="column">
-        <h2 class="title is-3">Matting</h2>
-        <div class="columns is-centered">
-          <div class="column content">
-            <p>
-              As a byproduct of our method, we can also solve the matting problem by ignoring
-              samples that fall outside of a bounding box during rendering.
-            </p>
-            <video id="matting-video" controls playsinline height="100%">
-              <source src="./static/videos/matting.mp4"
-                      type="video/mp4">
-            </video>
-          </div>
-
-        </div>
-      </div>
-    </div>
-    <!--/ Matting. -->
-
-    <!-- Animation. -->
-    <div class="columns is-centered">
-      <div class="column is-full-width">
-        <h2 class="title is-3">Animation</h2>
-
-        <!-- Interpolating. -->
-        <h3 class="title is-4">Interpolating states</h3>
-        <div class="content has-text-justified">
-          <p>
-            We can also animate the scene by interpolating the deformation latent codes of two input
-            frames. Use the slider here to linearly interpolate between the left frame and the right
-            frame.
-          </p>
-        </div>
-        <div class="columns is-vcentered interpolation-panel">
-          <div class="column is-3 has-text-centered">
-            <img src="./static/images/interpolate_start.jpg"
-                 class="interpolation-image"
-                 alt="Interpolate start reference image."/>
-            <p>Start Frame</p>
-          </div>
-          <div class="column interpolation-video-column">
-            <div id="interpolation-image-wrapper">
-              Loading...
-            </div>
-            <input class="slider is-fullwidth is-large is-info"
-                   id="interpolation-slider"
-                   step="1" min="0" max="100" value="0" type="range">
-          </div>
-          <div class="column is-3 has-text-centered">
-            <img src="./static/images/interpolate_end.jpg"
-                 class="interpolation-image"
-                 alt="Interpolation end reference image."/>
-            <p class="is-bold">End Frame</p>
-          </div>
-        </div>
-        <br/>
-        <!--/ Interpolating. -->
-
-        <!-- Re-rendering. -->
-        <h3 class="title is-4">Re-rendering the input video</h3>
-        <div class="content has-text-justified">
-          <p>
-            Using <span class="dnerf">Nerfies</span>, you can re-render a video from a novel
-            viewpoint such as a stabilized camera by playing back the training deformations.
-          </p>
-        </div>
-        <div class="content has-text-centered">
-          <video id="replay-video"
-                 controls
-                 muted
-                 preload
-                 playsinline
-                 width="75%">
-            <source src="./static/videos/replay.mp4"
-                    type="video/mp4">
-          </video>
-        </div>
-        <!--/ Re-rendering. -->
-
+      <h3 class="title is-4">Design and parameter values</h3>
+      <div class="table-wrap">
+        <table class="table is-narrow is-fullwidth">
+          <tbody>
+            <tr><th colspan="2">Model (<a href="./modelling.html">A</a>)</th></tr>
+            <tr><td>State and input</td><td>x = (x, y, &theta;), u = (v, &omega;); wheel radius 0.033&nbsp;m, track 0.288&nbsp;m</td></tr>
+            <tr><td>Wheel actuators</td><td>deadband 1.0&nbsp;rad/s, lag &tau; = 0.110&nbsp;s (both derived from the MuJoCo parameters); turning resistance 0.020&nbsp;rad/s; top speed 0.227&nbsp;m/s</td></tr>
+            <tr><td>Control model</td><td>2-state cross-track/heading error model, discretised by zero-order hold at T = 0.05&nbsp;s</td></tr>
+            <tr><th colspan="2">Estimator (<a href="./estimation.html">C</a>)</th></tr>
+            <tr><td>Prediction</td><td>exact-arc unicycle on encoder odometry; Q<sub>d</sub> from a wheel error model (1% radius, 0.02&nbsp;rad/&radic;rad slip) &times; 3</td></tr>
+            <tr><td>Update</td><td>ArUco range and bearing, R from the perception noise model &times; (5, 1); &chi;&sup2; gate 11.83; lock-out recovery after 5 rejected frames</td></tr>
+            <tr><td>Explore extensions</td><td>initial pose from PnP position and the LiDAR wall-line yaw; wall-line heading update (&sigma; = 1&deg;, gate 8.81); markers mapped by EKF-SLAM once the dock marker has been seen</td></tr>
+            <tr><th colspan="2">Controller (<a href="./control.html">D</a>)</th></tr>
+            <tr><td>Planning</td><td>log-odds LiDAR occupancy grid (5&nbsp;cm), A* with 0.30&nbsp;m clearance, spline with curvature &le; 15&nbsp;/m</td></tr>
+            <tr><td>Path following</td><td>LQR, Bryson's rule (50&nbsp;mm, 10&deg;, 0.5&nbsp;rad/s): Q = diag(400, 32.8), R = 4, gain-scheduled on speed; feed-forward &omega; = v&kappa;; 0.15&nbsp;m/s</td></tr>
+            <tr><td>Docking</td><td>PBVS: v = 0.5 (z<sub>M</sub> &minus; 0.25), &omega; = &minus;1.5 atan2(x<sub>M</sub>, z<sub>M</sub>), docked within 10&nbsp;mm</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
-    <!--/ Animation. -->
-
-
-    <!-- Concurrent Work. -->
-    <div class="columns is-centered">
-      <div class="column is-full-width">
-        <h2 class="title is-3">Related Links</h2>
-
-        <div class="content has-text-justified">
-          <p>
-            There's a lot of excellent work that was introduced around the same time as ours.
-          </p>
-          <p>
-            <a href="https://arxiv.org/abs/2104.09125">Progressive Encoding for Neural Optimization</a> introduces an idea similar to our windowed position encoding for coarse-to-fine optimization.
-          </p>
-          <p>
-            <a href="https://www.albertpumarola.com/research/D-NeRF/index.html">D-NeRF</a> and <a href="https://gvv.mpi-inf.mpg.de/projects/nonrigid_nerf/">NR-NeRF</a>
-            both use deformation fields to model non-rigid scenes.
-          </p>
-          <p>
-            Some works model videos with a NeRF by directly modulating the density, such as <a href="https://video-nerf.github.io/">Video-NeRF</a>, <a href="https://www.cs.cornell.edu/~zl548/NSFF/">NSFF</a>, and <a href="https://neural-3d-video.github.io/">DyNeRF</a>
-          </p>
-          <p>
-            There are probably many more by the time you are reading this. Check out <a href="https://dellaert.github.io/NeRF/">Frank Dellart's survey on recent NeRF papers</a>, and <a href="https://github.com/yenchenlin/awesome-NeRF">Yen-Chen Lin's curated list of NeRF papers</a>.
-          </p>
-        </div>
-      </div>
-    </div>
-    <!--/ Concurrent Work. -->
-
   </div>
 </section>
 
 
-<section class="section" id="BibTeX">
+<section class="section section-tight">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Criteria References</h2>
+    <div class="criteria-grid">
+      <a class="criterion-card" href="./modelling.html">
+        <div class="letter">A</div><div class="name">Modelling</div>
+        <p>The state-space model and an actuator model checked against the robot, controllability and noise-weighted observability.</p>
+      </a>
+      <a class="criterion-card" href="./sensing.html">
+        <div class="letter">B</div><div class="name">Sensing</div>
+        <p>Camera calibration, the ArUco noise model, LiDAR tuning, and the frames, which are verified end to end.</p>
+      </a>
+      <a class="criterion-card" href="./estimation.html">
+        <div class="letter">C</div><div class="name">Estimation</div>
+        <p>EKF and EKF-SLAM: Design, tuning by NEES from overconfident to consistent, and accuracy against dead reckoning.</p>
+      </a>
+      <a class="criterion-card" href="./control.html">
+        <div class="letter">D</div><div class="name">Control</div>
+        <p>LiDAR planning, LQR spline tracking with its trade-off curve, and visual docking with its known limit.</p>
+      </a>
+      <a class="criterion-card" href="./robustness.html">
+        <div class="letter">E</div><div class="name">Integration and robustness</div>
+        <p>13 scenarios &times; 10 trials, tracing every failure to a cause + the fixes we made that took it from 104 to 130/130.</p>
+      </a>
+      <a class="criterion-card" href="./hardware.html">
+        <div class="letter"><i class="fas fa-robot"></i></div><div class="name">Hardware integration</div>
+        <p>The same pipeline on the real Waffle Pi through rosbridge + everything that had to change.</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight">
   <div class="container is-max-desktop content">
-    <h2 class="title">BibTeX</h2>
-    <pre><code>@article{park2021nerfies,
-  author    = {Park, Keunhong and Sinha, Utkarsh and Barron, Jonathan T. and Bouaziz, Sofien and Goldman, Dan B and Seitz, Steven M. and Martin-Brualla, Ricardo},
-  title     = {Nerfies: Deformable Neural Radiance Fields},
-  journal   = {ICCV},
-  year      = {2021},
-}</code></pre>
+    <h2 class="title is-3 has-text-centered">Install and run</h2>
+    <p>Python 3.12 on Windows (macOS and Linux work with the usual changes to the activate command).</p>
+    <pre class="cmd">git clone --recurse-submodules https://github.com/kajakatovcic/41014_SPR26_Project.git
+cd 41014_SPR26_Project
+python3.12 -m venv .venv
+.venv\Scripts\activate
+python -m pip install mujoco numpy matplotlib open3d spatialmath-python tqdm control sympy
+python -m pip install opencv-contrib-python==4.10.0.84
+python -m pip install --no-deps machinevision-toolbox-python
+python -m pip install mvtb-data ansitable pgraph-python
+python setup_tests/test_waffle_sensors.py        # check MuJoCo and the robot's sensors</pre>
+    <p>Run the mission:</p>
+    <pre class="cmd">python main.py                          # explore mission: summary, LiDAR map, paths and estimation errors
+python main.py --viewer                 # MuJoCo viewer in real time, plus the robot's camera in its own window
+python main.py --obstacle-appears 20    # an obstacle appears in front of the robot at t = 20 s
+python main.py --record                 # save the video (overview + camera) to videos/mission.mp4
+python main.py --mission route          # the fixed-route baseline (known map and start pose)</pre>
+    <p>Reproduce the results (each test prints its numbers and saves its figure):</p>
+    <div class="table-wrap">
+      <table class="table is-narrow is-fullwidth">
+        <thead><tr><th>Command</th><th>What it evaluates</th><th>Time</th></tr></thead>
+        <tbody>
+          <tr><td><code>python tests/test_calibration.py</code></td><td>camera calibration, repeatability, camera mount</td><td>~1min</td></tr>
+          <tr><td><code>python tests/test_perception.py</code></td><td>LiDAR and ArUco against ground truth, 500 poses</td><td>~30s</td></tr>
+          <tr><td><code>python tests/test_model.py</code></td><td>derivation, controllability, observability, discretisation, model against the robot</td><td>~10s</td></tr>
+          <tr><td><code>python tests/test_estimation.py</code></td><td>EKF over repeated missions, consistency, tuning sweeps</td><td>~5min</td></tr>
+          <tr><td><code>python tests/test_control.py</code></td><td>LQR design, trade-off curve, missions, docking from offset starts</td><td>~6min</td></tr>
+          <tr><td><code>python tests/test_navigation.py</code></td><td>one-marker localisation, missions from random starts</td><td>~10min</td></tr>
+          <tr><td><code>python tests/test_robustness.py --trials 10</code></td><td>13 scenarios &times; 10 trials (set <code>OMP_NUM_THREADS=1</code> with many workers)</td><td>~12min</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The real robot needs the rosbridge API as well. See <a href="./hardware.html">Hardware</a>.</p>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+    <h2 class="title is-3 has-text-centered">Ground truth for evaluation ONLY</h2>
+    <p>
+      Following the assignment specs, the controller uses the estimated state and never ground truth. This is enforced in the
+      structure of the loop and is visible in the code:
+    </p>
+    <ul>
+      <li>The controller is called with the estimate <code>x_hat</code>, the LiDAR points and the camera
+        observations only:
+        <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/main.py#L190-L199"><code>main.py</code> lines 190&ndash;199</a>.</li>
+      <li>The simulator's true pose is read only into the log which feeds the summary, the plots and the test scoring:
+        <a href="https://github.com/kajakatovcic/41014_SPR26_Project/blob/main/main.py#L209-L216"><code>main.py</code> lines 209&ndash;216</a>.</li>
+      <li>In the explore mission the estimator starts from its first marker sighting, not from the simulator. Before
+        that, the estimate and the logs are empty.</li>
+      <li>The simulated wheel-radius errors and slip (<code>SIM_WHEEL_SCALE_ERROR</code>, <code>SIM_WHEEL_SLIP_SIGMA</code>)
+        are never visible to the robot's software.</li>
+    </ul>
+  </div>
+</section>
+
+
+<section class="section section-tight">
+  <div class="container is-max-desktop content">
+    <h2 class="title is-3 has-text-centered">More results</h2>
+    <div class="columns">
+      <div class="column">
+        <figure class="fig">
+          <video controls muted playsinline preload="metadata" width="100%">
+            <source src="./static/videos/obstacle.mp4" type="video/mp4">
+          </video>
+          <figcaption>A disturbed trial: a cylinder appears in the robot's path at t = 20&nbsp;s. The LiDAR sees it,
+            the path is marked blocked, and the robot replans around it and still docks (10&nbsp;mm, 4&nbsp;mm lateral).</figcaption>
+        </figure>
+      </div>
+      <div class="column">
+        <figure class="fig">
+          <img src="./static/figures/main_explore.png" alt="The robot's LiDAR map, planned and driven paths, and estimation error with its 2-sigma bound against ground truth">
+          <figcaption>The same mission as the video at the top: the robot's LiDAR map and paths, and its estimation
+            error against ground truth with the filter's 2&sigma; bound.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section section-tight" id="contributions">
+  <div class="container is-max-desktop content">
+    <h2 class="title is-3 has-text-centered">Individual contributions</h2>
+    <div class="table-wrap">
+      <table class="table is-fullwidth">
+        <thead><tr><th style="width: 22%;">Member</th><th>Contribution</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Kaja Katovcic</td>
+            <td> (<code>kaja-branch</code>): Simulation set-up and sensor drivers, perception and camera calibration, state-space model, EKF and
+              its tuning, integration of all group work into main (<code>integration-branch</code>), constructing the
+              explore mission (MarkerSLAM, LiDAR planner, navigator), robustness study, hardware pipeline, 
+              and project page. (<code>project-page</code>)</td>
+          </tr>
+          <tr>
+            <td>Anthony Fava</td>
+            <td>CONTROL:The spline trajectory geometry and curvature feed-forward (<code>Anthony_Branch</code>), the mission route and its clearance
+              check, and a 3-state LQR tracker that was compared against the merged controller. Assisted with
+              hardware bring-up (track set-up, camera calibration, sensor checks), and was responsible for 
+              editing the main 5-min demo video.</td>
+          </tr>
+          <tr>
+            <td>Lily Beharrell</td>
+            <td>ESTIMATION: A separately proposed estimation implementation merged to produce the final
+              code (<code>lily-branch</code>), and the hardware bring-up: camera calibration on the real robot, 
+              the track set-up, the sensor checks and tuning the hardware parameters (<code>lily-hareware-branch</code>). Assisted with
+              creating the video script + videos/figures. </td>
+          </tr>
+          <tr>
+            <td>Maree Parisi</td>
+            <td>ESTIMATION: A separately proposed estimation implementation merged to product the final
+              code (<code>maree-branch</code>). Assisted with the hardware bring-up (track set-up, camera calibration,
+              sensor checks), video script + figures, and project page (<code>project-page</code>).
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="section section-tight" id="contributions">
+  <div class="container is-max-desktop content">
+    <h2 class="title is-3 has-text-centered">Generative AI Declaration</h2>
+    <div class="table-wrap">
+      <table class="table is-fullwidth">
+        <thead><tr><th style="width: 22%;">AI Model</th><th>Usage</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Claude Code</td>
+            <td>Assisted in constructing rigorous test cases, used in <code>/tests/</code>. These were crucial
+              to determining bugs within our code modules and making fixes essential to justifying the 
+              robustness of our code</td>
+          </tr>
+          <tr>
+            <td>Claude Code</td>
+            <td>Assisted in setting up git submodules <code>robotis_mujoco_menagerie</code>, and 
+                <code>turtlebot_rosbridge</code>. Helped with troubleshooting issues faced during
+                setting up these submodules.</td>
+          </tr>
+          <tr>
+            <td>VSCode Copilot Extension</td>
+            <td>Debugging simple Python compiler errors occuring during building and running simulation code.
+            </td>
+          </tr>
+          <tr>
+            <td>Claude Code</td>
+            <td>Assisted in building the figures, sim videos and tables used in the project page, as well
+                as general website structure in html.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </section>
 
@@ -444,28 +458,18 @@
 <footer class="footer">
   <div class="container">
     <div class="content has-text-centered">
-      <a class="icon-link"
-         href="./static/videos/nerfies_paper.pdf">
-        <i class="fas fa-file-pdf"></i>
-      </a>
-      <a class="icon-link" href="https://github.com/keunhong" class="external-link" disabled>
+      <a class="icon-link" href="https://github.com/kajakatovcic/41014_SPR26_Project">
         <i class="fab fa-github"></i>
       </a>
     </div>
     <div class="columns is-centered">
       <div class="column is-8">
-        <div class="content">
+        <div class="content has-text-centered is-size-7">
+          <p>41014 Sensors and Control for Mechatronic Systems, University of Technology Sydney, Spring 2026.</p>
           <p>
-            This website is licensed under a <a rel="license"
-                                                href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
+            This page is adapted from the <a href="https://github.com/nerfies/nerfies.github.io">Nerfies</a> project
+            page template, licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
             Commons Attribution-ShareAlike 4.0 International License</a>.
-          </p>
-          <p>
-            This means you are free to borrow the <a
-              href="https://github.com/nerfies/nerfies.github.io">source code</a> of this website,
-            we just ask that you link back to this page in the footer.
-            Please remember to remove the analytics code included in the header of the website which
-            you do not want on your website.
           </p>
         </div>
       </div>
