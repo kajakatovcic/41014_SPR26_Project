@@ -6,9 +6,9 @@ A TurtleBot3 Waffle Pi with a 2D LiDAR and an RGB camera, simulated in MuJoCo. T
 LiDAR and visually docks to the ArUco-marked charging station.
 
 ### Requirements
-- [ ] **State-space model** of the platform
-- [ ] **EKF** fusing wheel-encoder odometry with range-and-bearing (or pose) measurements from the camera
-- [ ] **State-feedback or LQR trajectory tracker**
+- [x] **State-space model** of the platform
+- [x] **EKF** fusing wheel-encoder odometry with range-and-bearing (or pose) measurements from the camera
+- [x] **State-feedback or LQR trajectory tracker**
 
 > **Assignment constraint:** the controller must use the **estimated** state and never ground truth.
 > Ground truth from MuJoCo (`data.qpos`, `data.xpos`, ...) may only be used to evaluate and plot performance.
