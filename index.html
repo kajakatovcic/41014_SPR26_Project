@@ -293,16 +293,27 @@
 <section class="section section-tight">
   <div class="container is-max-desktop content">
     <h2 class="title is-3 has-text-centered">Install and run</h2>
-    <p>Python 3.12 on Windows (macOS and Linux work with the usual changes to the activate command).</p>
+    <p>Python 3.12. Clone with the submodules:</p>
     <pre class="cmd">git clone --recurse-submodules https://github.com/kajakatovcic/41014_SPR26_Project.git
-cd 41014_SPR26_Project
-python3.12 -m venv .venv
-.venv\Scripts\activate
-python -m pip install mujoco numpy matplotlib open3d spatialmath-python tqdm control sympy
+cd 41014_SPR26_Project</pre>
+    <p>Create and activate the virtual environment. On Windows (PowerShell):</p>
+    <pre class="cmd">py -3.12 -m venv .venv
+.venv\Scripts\activate</pre>
+    <p>On Linux or macOS:</p>
+    <pre class="cmd">python3.12 -m venv .venv
+source .venv/bin/activate</pre>
+    <p>Then install the packages (the same on every platform) and check the set-up:</p>
+    <pre class="cmd">python -m pip install mujoco==3.15.0 numpy matplotlib open3d spatialmath-python tqdm control sympy
 python -m pip install opencv-contrib-python==4.10.0.84
 python -m pip install --no-deps machinevision-toolbox-python
 python -m pip install mvtb-data ansitable pgraph-python
 python setup_tests/test_waffle_sensors.py        # check MuJoCo and the robot's sensors</pre>
+    <p class="is-size-7 has-text-grey">
+      <code>mujoco==3.15.0</code> is the version our results were produced with. Newer versions also run, but the
+      simulation then differs slightly and the numbers no longer match <code>findings/</code> exactly. If PowerShell
+      refuses to run <code>activate</code>, run <code>Set-ExecutionPolicy -Scope CurrentUser RemoteSigned</code> once.
+      We tested these steps on a fresh clone on Windows.
+    </p>
     <p>Run the mission:</p>
     <pre class="cmd">python main.py                          # explore mission: summary, LiDAR map, paths and estimation errors
 python main.py --viewer                 # MuJoCo viewer in real time, plus the robot's camera in its own window
