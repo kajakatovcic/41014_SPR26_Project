@@ -1,6 +1,11 @@
 /* Project additions on top of the Nerfies template (index.css) */
 
 .navbar { border-bottom: 1px solid #e8e8e8; }
+
+/* Title card on a full-width band that matches its black background. Shown at its own aspect ratio and at most
+   760px wide (the image is 1031px), so it is never stretched and stays sharp on high-resolution screens */
+.title-banner { background: #000; text-align: center; padding: 1rem 1rem 0; }
+.title-banner img { display: block; margin: 0 auto; width: 100%; max-width: 760px; height: auto; }
 .navbar-item.is-active { font-weight: 700; }
 
 .section-tight { padding-top: 2rem; padding-bottom: 2rem; }
