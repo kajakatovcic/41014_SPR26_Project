@@ -249,6 +249,57 @@
       the planner's clearance.
     </p>
 
+    <h3 class="title is-4">Simulation against hardware</h3>
+    <div class="table-wrap">
+      <table class="table is-narrow is-striped is-fullwidth">
+        <thead><tr><th></th><th>Simulation (explore mission)</th><th>Real robot</th></tr></thead>
+        <tbody>
+          <tr><td>Runs docked</td><td>10/10 from random starts; 130/130 across 13 robustness scenarios</td><td>4/5</td></tr>
+          <tr><td>Mission time</td><td>44.1&nbsp;s mean (random starts)</td><td>~80&nbsp;s mean</td></tr>
+          <tr><td>Docking distance (camera to dock marker)</td><td>0.25&nbsp;m</td><td>0.4&nbsp;m</td></tr>
+          <tr><td>Docked when</td><td colspan="2">the camera reads the dock marker within 10&nbsp;mm of the docking distance, and centred (the robot's own test, in both)</td></tr>
+          <tr><td>True docking error</td><td>9.8&nbsp;mm distance, 0.8&nbsp;mm lateral, 0.1&deg; (against ground truth)</td><td>not measured</td></tr>
+          <tr><td>Estimation error</td><td>11.3&nbsp;mm RMS (against ground truth)</td><td>not measurable (no ground truth)</td></tr>
+          <tr><td>Obstacle appearing in the path</td><td>10/10 replanned and docked (<code>obstacle_appears</code>)</td><td>a person's foot: replanned and docked (video above)</td></tr>
+          <tr><td>Changed obstacle and marker layout</td><td>10/10 with an extra obstacle; 10/10 from random starts</td><td>docked (video above)</td></tr>
+          <tr><td>Turn rate limit</td><td>1.58&nbsp;rad/s (physical)</td><td>0.4&nbsp;rad/s</td></tr>
+          <tr><td>Failure causes found</td><td>none in the final runs</td><td>1: safety corridor larger than the planner's clearance (fixed)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The hardware missions take about twice as long. That is consistent with the slower turn limit (every turn on the
+      spot, including the initial search, runs at 0.4&nbsp;rad/s or less), although we did not time the phases
+      separately to confirm it.
+    </p>
+
+    <div class="callout limits">
+      <div class="callout-title">What the hardware results do and do not show</div>
+      <p><b>Shown:</b></p>
+      <ul>
+        <li>The perception, estimation and control code runs unchanged on the real robot through rosbridge, with only
+          the robot layer new. Every topic arrives in the expected format and at the expected rate.</li>
+        <li>The robot localises from the reference marker, plans on its own LiDAR map and docks: 4 of 5 runs.</li>
+        <li>It replans around an obstacle that appears in its path, and copes with a changed obstacle and marker
+          layout.</li>
+        <li>The one failure was traced to a cause in the code (the safety corridor against the planner's clearance)
+          and fixed.</li>
+      </ul>
+      <p><b>Not shown:</b></p>
+      <ul>
+        <li><b>Accuracy:</b> There is no ground truth on the real robot, and the docked pose was not measured by hand,
+          so neither the docking error nor the estimation error is known. "Docked" is the robot's own test.</li>
+        <li><b>A reliable success rate:</b> 4 of 5 runs is consistent with a true success rate anywhere from about 28%
+          to 99% (95% binomial interval).</li>
+        <li><b>A validated calibration:</b> The calibration shows signs of over-fitting (see section 2), and marker
+          ranges were not checked against a tape measure.</li>
+        <li><b>Real-robot noise models:</b> The camera and odometry noise and the EKF tuning were fitted in simulation
+          and not refitted on hardware, so the filter's consistency on the robot is unknown.</li>
+        <li><b>Loop timing on the robot:</b> The loop-time figures above (21&nbsp;ms mean, 96&nbsp;ms worst) are from the
+          simulated stand-in and not the real robot.</li>
+      </ul>
+    </div>
+
     <h2 class="title is-3" id="porting">5. Porting issues</h2>
     <p>
       The transition from simulation to hardware was mostly seamless: the perception, estimation and control code ran
