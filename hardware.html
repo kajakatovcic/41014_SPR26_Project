@@ -140,10 +140,10 @@
           <tr><td>Docked distance d*</td><td>0.25m</td><td>0.40m</td><td>the camera lost the marker close up </td></tr>
           <tr><td>Camera x on the robot</td><td>0.0855m</td><td>0.07m</td><td>measured</td></tr>
           <tr><td>Speed limits</td><td>0.227m/s, 1.58rad/s (physical)</td><td>0.15m/s, 0.4rad/s</td><td>start gently (the Waffle Pi can do 0.26m/s and 1.82rad/s)</td></tr>
-          <tr><td>LiDAR safety corridor</td><td>0.203m half-width, 0.286m stop</td><td>0.183m, 0.186m</td><td>tuned on the real track. <code>hw_config.apply()</code> sets these for the hardware scripts only so the simulation keeps its own values.</td></tr>
+          <tr><td>LiDAR safety corridor</td><td>0.203m half-width, 0.286m stop</td><td>0.183m, 0.186m</td><td>the larger corridor stopped the robot on paths the planner considered safe, and it got stuck (see <a href="#results">section 4</a>). <code>hw_config.apply()</code> sets these for the hardware scripts only so the simulation keeps its own values.</td></tr>
           <tr><td>RANSAC hypotheses</td><td>500</td><td>150</td><td>loop timing</td></tr>
           <tr><td>Corner bias BIAS_PX</td><td>0.64px</td><td>0</td><td>a property of the simulated renderer, refit on hardware</td></tr>
-          <tr><td>Calibration board</td><td>9&times;6, 40mm squares</td><td>9&times;6, mm squares</td><td>printed board</td></tr>
+          <tr><td>Calibration board</td><td>9&times;6, 40mm squares</td><td>9&times;6, 25mm squares</td><td>printed board</td></tr>
         </tbody>
       </table>
     </div>
@@ -153,7 +153,15 @@
       The simulated lens has no distortion so simulation uses a pinhole model (<a href="./sensing.html">B</a>). A real
       lens does have distortion, so <code>calibrate_camera.py</code> fits the full (k<sub>1</sub>, k<sub>2</sub>,
       p<sub>1</sub>, p<sub>2</sub>, k<sub>3</sub>) model, and the pipeline undistorts every frame before using the
-      pinhole model as in simulation. The saved calibration (30 October 2026) used 17 views:
+      pinhole model as in simulation.
+    </p>
+    <p>
+      <b>Procedure:</b> intrinsic calibration from the robot's own camera (Week 3 B, C), with the printed checkerboard
+      held in front of the robot at varied distances (0.4&ndash;1.2&nbsp;m), positions across the image, and tilts of up
+      to about 40&deg;. This gives the real camera's focal length, principal point and lens distortion, so marker
+      ranges and bearings are computed with the real camera's intrinsics rather than the simulated camera's. Each
+      TurtleBot in the lab had a different camera and mounting, so the calibration was repeated for the robot in use
+      (see <a href="#porting">Porting issues</a>). The saved calibration (30 October 2026) used 17 views:
     </p>
     <div class="table-wrap">
       <table class="table is-narrow is-fullwidth">
@@ -187,7 +195,7 @@
       </table>
     </div>
 
-    <h2 class="title is-3">4. Results on the real robot</h2>
+    <h2 class="title is-3" id="results">4. Results on the real robot</h2>
     <p>Trials tested - seen in videos below</p>
     <ul>
       <li><b>Multiple obstacle configurations, and placing the markers at different points.</b> Confirmed
@@ -195,6 +203,9 @@
       </li>
       <li><b>A random, sudden obstacle that appears in its path</b> - placing a foot/leg directly in the path
         of the robot, it was still able to replan around the new obstacle and dock.
+        This repeats the simulation's <code>obstacle_appears</code> robustness scenario (<a href="./robustness.html">E</a>)
+        on hardware: a team member stepped in front of the robot while it was driving, the LiDAR sensed the obstacle,
+        and the robot replanned its path around it.
       </li>
     </ul>
     <div class="columns">
@@ -218,18 +229,57 @@
       </div>
     </div>
 
-    <h2 class="title is-3">5. Porting issues</h2>
-    <p>Recorded during bring-up:</p>
+    <p>
+      <b>Overall:</b> docked in 4 of 5 runs, with a mean mission time of about 80&nbsp;s. "Docked" is the robot's own
+      test, as in simulation: the camera reads the dock marker within 10&nbsp;mm of the docking distance, and centred.
+      On hardware the docking distance is 0.4&nbsp;m from the dock marker, against 0.25&nbsp;m in simulation, because
+      closer than that the camera can no longer read the whole marker (<a href="#porting">issue 2</a>). We did not
+      measure the docked pose against a ruler, so there is no hardware equivalent of the simulation's true docking error.
+    </p>
+    <p>
+      <b>The run that did not dock</b> stopped short of the dock and never moved again. In that run the LiDAR safety
+      corridor still had the simulation's size: 0.203&nbsp;m either side and 0.286&nbsp;m ahead of the robot's
+      origin, reaching up to 0.35&nbsp;m at its front corners. That is further than the clearance the planner keeps
+      from obstacles (0.28&ndash;0.30&nbsp;m). On the smaller real track, planned paths passed obstacles inside that
+      gap, so the safety stop halted the robot on a path the planner considered safe, and replanning from inside the
+      planner's margin found no route. After that run we narrowed the corridor to 0.183&nbsp;m and 0.186&nbsp;m
+      (<code>hw_config.py</code>), so it now reaches at most 0.26&nbsp;m, inside the planner's clearance. The
+      simulation's larger room never exposed this mismatch: the explore mission there was 130/130
+      (<a href="./robustness.html">E</a>). The general lesson is that the safety check must never reach further than
+      the planner's clearance.
+    </p>
+
+    <h2 class="title is-3" id="porting">5. Porting issues</h2>
+    <p>
+      The transition from simulation to hardware was mostly seamless: the perception, estimation and control code ran
+      unchanged, and we came across few bugs. The two main issues both came from the real camera's <b>delayed
+      response</b> and <b>limited field of view</b>, which the simulated camera does not have.
+    </p>
+    <ol>
+      <li><b>Spinning too fast to see the reference marker.</b> The mission starts by turning on the spot at a set
+        angular velocity until the reference marker is in view (search mode, <a href="./control.html">D</a>). On the
+        robot, the camera never registered the marker: it was spinning too fast for a camera whose frames arrive with
+        a delay the simulated camera does not have, so the marker had already left the view by the time a frame was
+        processed. The fix was simple, slowing the turn: commands on hardware are capped at
+        <code>W_LIMIT</code> = 0.4&nbsp;rad/s (from 1.0), so the search turn (0.7&nbsp;rad/s in simulation) runs at
+        0.4&nbsp;rad/s. Working out <i>why</i> it was happening took longer than the fix.</li>
+      <li><b>Markers too high and too small for the camera's field of view close up.</b> We first printed the markers at
+        100&times;100&nbsp;mm and mounted them about 175&nbsp;mm off the ground. Close to a marker, the camera's limited
+        field of view could no longer see the whole marker, so it could not be detected. Without it, the robot lost
+        track of where it was on the track and moved away from the dock. The markers are now mounted with their
+        centres 0.12&nbsp;m above the floor (<code>MARKER_HEIGHT</code>), and docking stops with the camera
+        0.4&nbsp;m from the dock marker (<code>DOCK_DISTANCE</code>; 0.25&nbsp;m in simulation), where the whole marker
+        stays in view.</li>
+    </ol>
+    <p>Smaller issues:</p>
     <ul>
+      <li><b>A different camera on each robot.</b> The TurtleBots in the lab had different camera models and mountings,
+        and some suffered more from lighting or motion blur because of camera quality. Each time we changed robot, we
+        had to recalibrate the camera.</li>
       <li><b>Markers must be mounted upright,</b> or the camera does not recognise them.</li>
-      <li><b>Close to the dock, the camera lost the marker.</b> The docked distance on hardware is 0.4&nbsp;m against
-        0.25&nbsp;m in simulation.</li>
       <li><b>The calibration board and markers differ from simulation</b> (25&nbsp;mm squares, 0.1&nbsp;m markers), so
         these values moved out of the shared configuration into <code>hw_config.py</code>. That way, tuning the real
         robot cannot change the simulation results.</li>
-      <li><b>Camera issues:</b> Camera models differed between the TurtleBot models available, and some suffered more
-        lighting or motion blur issues due to camera quality. Mounting was also different per model, meaning each
-        time we had to recalibrate the camera.</li>
     </ul>
 
 
