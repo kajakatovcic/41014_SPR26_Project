@@ -1,0 +1,19 @@
+# Python 3.12. The simulation's packages, pinned to the versions the results in findings/ were produced with.
+# Install with (see README.md, Setup step 2):
+#   python -m pip install -r requirements.txt
+#   python -m pip install --no-deps machinevision-toolbox-python==2.4.0
+# The Machine Vision Toolbox is installed separately with --no-deps: it asks for opencv-python, which would overwrite
+# opencv-contrib-python (both write the same cv2 folder). Its other dependencies are listed below.
+mujoco==3.15.0
+numpy==2.5.3
+scipy==1.18.1
+matplotlib==3.11.2
+open3d==0.20.0
+spatialmath-python==1.1.18
+control==0.10.2
+sympy==1.14.0
+tqdm==4.70.1
+opencv-contrib-python==4.10.0.84
+mvtb-data==1.6.1
+ansitable==1.1.1
+pgraph-python==0.6.5

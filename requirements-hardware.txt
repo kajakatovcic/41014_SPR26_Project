@@ -1,0 +1,8 @@
+# Extra packages for the real robot (hardware_integration/), on top of requirements.txt.
+# Install with (see README.md, Setup step 3):
+#   python -m pip install --no-deps -e "./external/turtlebot_rosbridge"
+#   python -m pip install -r requirements-hardware.txt
+# The rosbridge API itself is installed from the submodule with --no-deps: it asks for opencv-python, which would
+# overwrite opencv-contrib-python (both write the same cv2 folder).
+roslibpy==2.1.0   # rosbridge client
+pynput==1.8.2     # keyboard teleop example (the API's [teleop] extra)

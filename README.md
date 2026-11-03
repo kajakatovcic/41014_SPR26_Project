@@ -28,6 +28,7 @@ LiDAR and visually docks to the ArUco-marked charging station.
 | `robotis_mujoco_menagerie/` | ROBOTIS MuJoCo models (git submodule), TurtleBot3 in `robotis_tb3/` |
 | `hardware_integration/` | The explore mission on the real TurtleBot through rosbridge (see [hardware_integration/README.md](hardware_integration/README.md)) |
 | `external/turtlebot_rosbridge/` | UTS-RI rosbridge API for the real TurtleBot (git submodule, read-only): camera, lidar, joint states, `/cmd_vel` |
+| `requirements.txt`, `requirements-hardware.txt` | Pinned Python packages for the simulation, and the extras for the real robot (see Setup steps 2 and 3) |
 
 ### Tutorial content used within this assignment 
 | Requirement | Tutorial |
@@ -63,20 +64,21 @@ LiDAR and visually docks to the ArUco-marked charging station.
    ```
    Then install the packages (the same on every platform):
    ```
-   python -m pip install mujoco==3.15.0 numpy matplotlib open3d spatialmath-python tqdm control sympy
-   python -m pip install opencv-contrib-python==4.10.0.84
-   python -m pip install --no-deps machinevision-toolbox-python
-   python -m pip install mvtb-data ansitable pgraph-python
+   python -m pip install -r requirements.txt
+   python -m pip install --no-deps machinevision-toolbox-python==2.4.0
    ```
-   `mujoco==3.15.0` is the version the results in `findings/` were produced with. Newer versions also run, but the
-   simulation then differs slightly and the numbers no longer match `findings/` exactly.
+   `requirements.txt` pins every package to the version the results in `findings/` were produced with. MuJoCo
+   matters most: newer versions also run, but the simulation then differs slightly and the numbers no longer match
+   `findings/` exactly. The Machine Vision Toolbox is installed on its own with `--no-deps` because it asks for
+   `opencv-python`, which would overwrite `opencv-contrib-python` (both write the same `cv2` folder). pip then reports
+   that `opencv-python` is missing; that is expected, since `opencv-contrib-python` provides the same `cv2`.
    If PowerShell refuses to run `activate` ("running scripts is disabled on this system"), run
    `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again.
 3. For the real robot, install the rosbridge API (`external/turtlebot_rosbridge`), again without its
    dependencies, then add the ones it needs:
    ```
    python -m pip install --no-deps -e "./external/turtlebot_rosbridge"
-   python -m pip install "roslibpy>=2.0,<3" "pynput>=1.7"
+   python -m pip install -r requirements-hardware.txt
    ```
    `--no-deps` Is important- The package asks for `opencv-python`, which would be installed over
    `opencv-contrib-python` 4.10 (both write the same `cv2` folder). It only needs `cv2.imdecode`, which the contrib
