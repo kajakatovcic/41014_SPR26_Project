@@ -303,16 +303,17 @@ cd 41014_SPR26_Project</pre>
     <pre class="cmd">python3.12 -m venv .venv
 source .venv/bin/activate</pre>
     <p>Then install the packages (the same on every platform) and check the set-up:</p>
-    <pre class="cmd">python -m pip install mujoco==3.15.0 numpy matplotlib open3d spatialmath-python tqdm control sympy
-python -m pip install opencv-contrib-python==4.10.0.84
-python -m pip install --no-deps machinevision-toolbox-python
-python -m pip install mvtb-data ansitable pgraph-python
+    <pre class="cmd">python -m pip install -r requirements.txt
+python -m pip install --no-deps machinevision-toolbox-python==2.4.0
 python setup_tests/test_waffle_sensors.py        # check MuJoCo and the robot's sensors</pre>
     <p class="is-size-7 has-text-grey">
-      <code>mujoco==3.15.0</code> is the version our results were produced with. Newer versions also run, but the
-      simulation then differs slightly and the numbers no longer match <code>findings/</code> exactly. If PowerShell
-      refuses to run <code>activate</code>, run <code>Set-ExecutionPolicy -Scope CurrentUser RemoteSigned</code> once.
-      We tested these steps on a fresh clone on Windows.
+      <code>requirements.txt</code> pins every package to the version our results were produced with. MuJoCo matters
+      most: newer versions also run, but the simulation then differs slightly and the numbers no longer match
+      <code>findings/</code> exactly. The Machine Vision Toolbox is installed on its own with <code>--no-deps</code>
+      because it asks for <code>opencv-python</code>, which would overwrite <code>opencv-contrib-python</code>; pip then
+      reports <code>opencv-python</code> as missing, which is expected. If PowerShell refuses to run
+      <code>activate</code>, run <code>Set-ExecutionPolicy -Scope CurrentUser RemoteSigned</code> once. We tested these
+      steps in a fresh environment on Windows: <code>python main.py</code> reproduces <code>findings/</code> exactly.
     </p>
     <p>Run the mission:</p>
     <pre class="cmd">python main.py                          # explore mission: summary, LiDAR map, paths and estimation errors

@@ -337,7 +337,7 @@
     <h2 class="title is-3">6. To run it</h2>
     <pre class="cmd">git submodule update --init
 python -m pip install --no-deps -e "./external/turtlebot_rosbridge"
-python -m pip install "roslibpy>=2.0,<3" "pynput>=1.7"
+python -m pip install -r requirements-hardware.txt
 
 python hardware_integration/check_sensors.py 192.168.1.2XX                       # topics, no motion
 python hardware_integration/calibrate_camera.py 192.168.1.2XX                    # writes camera_calibration.json
