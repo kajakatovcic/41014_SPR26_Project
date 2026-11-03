@@ -6,7 +6,7 @@ import time
 import mujoco
 import mujoco.viewer
 
-XML = r"robotis_mujoco_menagerie\robotis_tb3\scene_turtlebot3_waffle_pi.xml"  # adjust to your file
+XML = "robotis_mujoco_menagerie/robotis_tb3/scene_turtlebot3_waffle_pi.xml"  # adjust to your file
 
 model = mujoco.MjModel.from_xml_path(XML)
 data = mujoco.MjData(model)

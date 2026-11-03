@@ -49,15 +49,29 @@ LiDAR and visually docks to the ArUco-marked charging station.
    git clone --recurse-submodules https://github.com/kajakatovcic/41014_SPR26_Project.git
    ```
    If you have already cloned it, run `git submodule update --init`. This also fetches any submodule added since.
-2. Create the virtual environment and install the packages (Python 3.12):
+2. Create the virtual environment (Python 3.12) and activate it:
+
+   Windows (PowerShell):
+   ```
+   py -3.12 -m venv .venv
+   .venv\Scripts\activate
+   ```
+   Linux / macOS:
    ```
    python3.12 -m venv .venv
-   .venv\Scripts\activate
-   python -m pip install mujoco numpy matplotlib open3d spatialmath-python tqdm control sympy
+   source .venv/bin/activate
+   ```
+   Then install the packages (the same on every platform):
+   ```
+   python -m pip install mujoco==3.15.0 numpy matplotlib open3d spatialmath-python tqdm control sympy
    python -m pip install opencv-contrib-python==4.10.0.84
    python -m pip install --no-deps machinevision-toolbox-python
    python -m pip install mvtb-data ansitable pgraph-python
    ```
+   `mujoco==3.15.0` is the version the results in `findings/` were produced with. Newer versions also run, but the
+   simulation then differs slightly and the numbers no longer match `findings/` exactly.
+   If PowerShell refuses to run `activate` ("running scripts is disabled on this system"), run
+   `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again.
 3. For the real robot, install the rosbridge API (`external/turtlebot_rosbridge`), again without its
    dependencies, then add the ones it needs:
    ```
@@ -85,7 +99,8 @@ LiDAR and visually docks to the ArUco-marked charging station.
    python external/turtlebot_rosbridge/examples/laser_scan.py 192.168.1.2XX
    python external/turtlebot_rosbridge/examples/teleop.py 192.168.1.2XX
    ```
-4. In VS Code, select the interpreter with `Ctrl+Shift+P` → **Python: Select Interpreter** → `.venv\Scripts\python.exe`.
+4. In VS Code, select the interpreter with `Ctrl+Shift+P` → **Python: Select Interpreter** → `.venv\Scripts\python.exe`
+   (Windows) or `.venv/bin/python` (Linux / macOS).
 5. Run the set-up tests to check everything works:
    ```
    python setup_tests/test_waffle_sensors.py
